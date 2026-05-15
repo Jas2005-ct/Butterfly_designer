@@ -28,3 +28,25 @@ class About(models.Model):
             raise ValueError("Only one About object is allowed")
         super().save(*args, **kwargs)
     
+
+class Employee(models.Model):
+    name=models.CharField(max_length=100)
+    image=models.ImageField(upload_to='images/',blank=True,null=True)
+    experience=models.IntegerField()
+    best_known_for=models.CharField(max_length=100)
+    about=models.TextField(null=True,blank=True)
+    address=models.TextField(null=True,blank=True)
+    phone=models.CharField(max_length=15,null=True,blank=True)
+    email=models.EmailField(null=True,blank=True)
+    social_links=models.URLField(null=True,blank=True)
+
+    def __str__(self):
+        return self.name
+
+class CustomerReview(models.Model):
+    name=models.CharField(max_length=100)
+    review=models.TextField()
+    rating=models.IntegerField()
+    
+    def __str__(self):
+        return self.name
