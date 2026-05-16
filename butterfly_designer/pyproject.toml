@@ -13,4 +13,5 @@ dependencies = [
     "dotenv>=0.9.9",
     "pillow>=12.2.0",
     "psycopg2>=2.9.12",
+    "qrcode>=8.2",
 ]
