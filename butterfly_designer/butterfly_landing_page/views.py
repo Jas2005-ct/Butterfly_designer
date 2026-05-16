@@ -6,7 +6,7 @@ from .models import Items,About,Employee,CustomerReview
 
 def home(request):
     about=About.objects.first()
-    employee=Employee.objects.all()
+    employee=Employee.objects.all().order_by('-experience')
     reviews=CustomerReview.objects.all().order_by('-created_at')[:8]
     items = Items.objects.all()[:5]
     employee_det = []
