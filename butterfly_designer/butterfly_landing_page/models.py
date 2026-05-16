@@ -4,7 +4,7 @@ from django.db import models
 
 class Items(models.Model):
     name=models.CharField(max_length=100)
-    price=models.DecimalField(max_digits=10, decimal_places=2)
+    price=models.DecimalField(max_digits=10,null=True,blank=True, decimal_places=2)
     image=models.ImageField(upload_to='images/')
     
     def __str__(self):
@@ -15,6 +15,10 @@ class About(models.Model):
     address=models.TextField()
     phone=models.CharField(max_length=15)
     email=models.EmailField()
+    instagram=models.URLField(null=True,blank=True)
+    facebook=models.URLField(null=True,blank=True)
+    twitter=models.URLField(null=True,blank=True)
+    
     
 
     class Meta:
