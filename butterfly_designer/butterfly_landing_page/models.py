@@ -29,8 +29,11 @@ class About(models.Model):
 
     def save(self,*args,**kwargs):
         if About.objects.exists():
-            raise ValueError("Only one About object is allowed")
-        super().save(*args, **kwargs)
+            if self.id:
+                super().save(*args, **kwargs)
+            else:
+                raise ValueError("Only one About object is allowed")
+       
     
 
 class Employee(models.Model):
