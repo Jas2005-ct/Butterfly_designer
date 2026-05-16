@@ -46,24 +46,36 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Staff Modal Logic
 function openStaffModal(id) {
-    const modal = document.getElementById('staff-modal');
+    const modal = document.getElementById('staffModal');
     const content = document.getElementById('modal-content');
     
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-    
-    // Fetch staff details via AJAX
-    fetch(`/employee/${id}/`)
-        .then(response => response.text())
-        .then(html => {
-            content.innerHTML = html;
-        });
+    if (modal) {
+        modal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden'; // Prevent scrolling when modal is open
+        
+        // Fetch staff details via AJAX
+        fetch(`/employee/${id}/`)
+            .then(response => {
+                if (!response.ok) throw new Error('Network response was not ok');
+                return response.text();
+            })
+            .then(html => {
+                if (content) {
+                    content.innerHTML = html;
+                }
+            })
+            .catch(error => {
+                console.error('Error loading staff details:', error);
+            });
+    }
 }
 
 function closeStaffModal() {
-    const modal = document.getElementById('staff-modal');
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
+    const modal = document.getElementById('staffModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        document.body.style.overflow = 'auto';
+    }
 }
 
 // Close modal on click outside
