@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_DB=butterfly_db
+      - POSTGRES_USER=butterfly_user
+      - POSTGRES_PASSWORD=butterfly_pass
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U butterfly_user -d butterfly_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    command: uv run python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=1
+      - DATABASE_URL=postgres://butterfly_user:butterfly_pass@db:5432/butterfly_db
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  media_volume:
