@@ -1,4 +1,4 @@
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.http import HttpResponse
 from .models import Items,About,Employee,CustomerReview
 
@@ -7,7 +7,7 @@ from .models import Items,About,Employee,CustomerReview
 def home(request):
     about=About.objects.first()
     employee=Employee.objects.all()
-    reviews=CustomerReview.objects.all()
+    reviews=CustomerReview.objects.all().order_by('-created_at')[:8]
     items = Items.objects.all()[:5]
     employee_det = []
     for i in employee:
@@ -34,3 +34,13 @@ def employee_detail(request,id):
         'employee': employee,
     }
     return render(request, 'employee_detail.html', context)
+
+
+def review_form(request):
+    if request.method == 'POST':
+        name = request.POST.get('name')
+        rating = request.POST.get('rating')
+        review = request.POST.get('review')
+        CustomerReview.objects.create(name=name, rating=rating, review=review)
+        return redirect('home')
+    return render(request, 'review_form.html')

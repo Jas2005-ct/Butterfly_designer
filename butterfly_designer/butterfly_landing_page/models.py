@@ -6,6 +6,7 @@ class Items(models.Model):
     name=models.CharField(max_length=100)
     price=models.DecimalField(max_digits=10,null=True,blank=True, decimal_places=2)
     image=models.ImageField(upload_to='images/')
+    created_at=models.DateTimeField(auto_now_add=True)
     
     def __str__(self):
         return self.name
@@ -46,6 +47,7 @@ class Employee(models.Model):
     phone=models.CharField(max_length=15,null=True,blank=True)
     email=models.EmailField(null=True,blank=True)
     social_links=models.URLField(null=True,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.name
@@ -54,6 +56,7 @@ class CustomerReview(models.Model):
     name=models.CharField(max_length=100)
     review=models.TextField()
     rating=models.IntegerField()
+    created_at=models.DateTimeField(auto_now_add=True)
     
     def __str__(self):
         return self.name
