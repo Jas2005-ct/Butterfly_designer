@@ -8,7 +8,8 @@ def home(request):
     about=About.objects.first()
     employee=Employee.objects.all().order_by('-experience')
     reviews=CustomerReview.objects.all().order_by('-created_at')[:8]
-    items = Items.objects.all()[:5]
+    items = Items.objects.all().order_by('-id')[:8]
+    hero_image = Items.objects.filter(name__icontains='bridal saree').first()
     employee_det = []
     for i in employee:
         employee_det.append({
@@ -24,6 +25,7 @@ def home(request):
         'employees':employee_det,
         'reviews': reviews,
         'items': items,
+        'hero_image': hero_image,
     }
     return render(request, 'home.html', context)
 

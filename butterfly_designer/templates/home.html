@@ -7,9 +7,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Butterfly Designer | Premium Women's Tailoring & Bridal Boutique</title>
-    <meta name="description" content="Butterfly Designer offers bespoke tailoring, bridal wear, and designer blouses in Tamil Nadu. Experience elegance and precision in every stitch.">
-    <meta name="keywords" content="boutique, tailoring, bridal wear, designer blouses, Tamil Nadu fashion, bespoke women's wear">
-    
+    <meta name="description"
+        content="Butterfly Designer offers bespoke tailoring, bridal wear, and designer blouses in Tamil Nadu. Experience elegance and precision in every stitch.">
+    <meta name="keywords"
+        content="boutique, tailoring, bridal wear, designer blouses, Tamil Nadu fashion, bespoke women's wear">
+
     <!-- Open Graph for Social Media -->
     <meta property="og:title" content="Butterfly Designer | Premium Women's Tailoring">
     <meta property="og:description" content="Exquisite designer wear and perfect tailoring for the modern woman.">
@@ -21,7 +23,7 @@
 
     <!-- External CSS -->
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
-    
+
     <link rel="icon"
         href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦋</text></svg>">
 </head>
@@ -61,10 +63,10 @@
                 <span
                     class="inline-flex items-center space-x-2 px-4 py-1 rounded-full bg-indigo-50 text-indigo-600 font-bold text-xs uppercase tracking-widest mb-6">
                     <span>Elegance never goes out of style</span>
-                    <i data-lucide="sparkles" class="w-3 h-3"></i>
+                    <!-- <i data-lucide="sparkles" class="w-3 h-3"></i> -->
                 </span>
                 <h1 class="text-5xl md:text-7xl font-serif leading-tight mb-8">
-                    Crafting <span class="italic font-light">Grace</span> <br> & Confidence.
+                    Crafting <span class=" font-light">Grace</span> <br> & Confidence.
                 </h1>
                 <p class="text-lg text-slate-600 mb-8 max-w-lg leading-relaxed">
                     At Butterfly Designer, we craft outfits that make every woman feel confident, graceful, and
@@ -121,7 +123,8 @@
                 </div>
                 <div
                     class="rounded-[3rem] overflow-hidden shadow-2xl transform rotate-2 hover:rotate-0 transition-all duration-700">
-                    <img src="{% static 'images/hero.png' %}" alt="Designer Atelier" class="w-full h-auto"
+                    <img src="{% if hero_image %}{{ hero_image.image.url }}{% else %}{% static 'images/hero.png' %}{% endif %}"
+                        alt="Butterfly Designer Masterpiece" class="w-full h-auto object-cover"
                         onerror="this.src='https://images.unsplash.com/photo-1558603668-6570496b66f8?auto=format&fit=crop&q=80'">
                 </div>
                 <!-- Floating Info Box -->
@@ -175,19 +178,15 @@
                     class="flex-none w-72 md:w-auto snap-start group p-8 rounded-[2rem] bg-[#FAF9F6] hover:bg-indigo-600 transition-all duration-500 cursor-pointer">
                     <div
                         class="w-14 h-14 md:w-16 md:h-16 bg-white rounded-2xl flex items-center justify-center mb-6 md:mb-8 shadow-sm group-hover:rotate-12 transition-all">
-                        <svg class="w-7 h-7 md:w-8 md:h-8 text-indigo-600" fill="none" stroke="currentColor"
-                            viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-7.714 2.143L11 21l-2.143-7.714L1 12l6.857-2.286L11 3z" />
-                        </svg>
+                        <i data-lucide="sparkles" class="w-7 h-7 md:w-8 md:h-8 text-indigo-600"></i>
                     </div>
                     <h3
                         class="text-xl md:text-2xl font-heading font-bold mb-4 group-hover:text-white transition-colors">
-                        Bridal
-                        Boutique</h3>
+                        Embroidery
+                        Blouses</h3>
                     <p class="text-sm md:text-base text-slate-500 group-hover:text-indigo-100 transition-colors">
-                        Specialized bridal
-                        embroidery, lehenga construction, and trousseau planning for your most special day.</p>
+                        Specialized Aari work, heavy bridal embroidery, and designer patterns tailored to perfection.
+                    </p>
                 </div>
 
                 <!-- Service 3 -->
@@ -195,19 +194,14 @@
                     class="flex-none w-72 md:w-auto snap-start group p-8 rounded-[2rem] bg-[#FAF9F6] hover:bg-indigo-600 transition-all duration-500 cursor-pointer">
                     <div
                         class="w-14 h-14 md:w-16 md:h-16 bg-white rounded-2xl flex items-center justify-center mb-6 md:mb-8 shadow-sm group-hover:rotate-12 transition-all">
-                        <svg class="w-7 h-7 md:w-8 md:h-8 text-indigo-600" fill="none" stroke="currentColor"
-                            viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                        </svg>
+                        <i data-lucide="gem" class="w-7 h-7 md:w-8 md:h-8 text-indigo-600"></i>
                     </div>
                     <h3
                         class="text-xl md:text-2xl font-heading font-bold mb-4 group-hover:text-white transition-colors">
-                        Designer
-                        Gowns</h3>
+                        Grand
+                        Lehengas</h3>
                     <p class="text-sm md:text-base text-slate-500 group-hover:text-indigo-100 transition-colors">
-                        High-fashion evening wear
-                        and red-carpet ready gowns tailored with luxury fabrics and unique details.</p>
+                        Custom-made bridal and occasion lehengas with premium fabrics and majestic craftsmanship.</p>
                 </div>
             </div>
         </div>
@@ -342,8 +336,8 @@
     </script>
 
     <!-- Gallery Section -->
-    <section id="gallery" class="py-24 hero-gradient">
-        <div class="container mx-auto px-6 md:px-12">
+    <section id="gallery" class="py-16 hero-gradient">
+        <div class="container mx-auto px-6 md:px-4">
             <div class="flex flex-col md:flex-row justify-between items-end mb-16">
                 <div class="max-w-xl">
                     <h2 class="text-4xl md:text-5xl font-serif mb-6">Our Lookbook</h2>
@@ -358,20 +352,22 @@
                 </div>
             </div>
 
-            <div
-                class="flex md:grid md:grid-cols-2 lg:grid-cols-4 gap-6 overflow-x-auto md:overflow-visible pb-8 md:pb-0 snap-x no-scrollbar">
+            <!-- Horizontal Runway Scroll -->
+            <div class="flex gap-6 overflow-x-auto pb-12 snap-x no-scrollbar">
                 {% for item in items %}
                 <div
-                    class="flex-none w-72 md:w-auto snap-start relative group overflow-hidden rounded-3xl h-[320px] md:h-[400px]">
+                    class="flex-none w-[260px] md:w-[350px] snap-center relative group overflow-hidden rounded-[2.5rem] h-[350px] md:h-[450px] shadow-lg">
                     <img src="{% if item.image %}{{ item.image.url }}{% else %}https://images.unsplash.com/photo-1566174053879-31528523f8ae?auto=format&fit=crop&q=80{% endif %}"
-                        class="w-full h-full object-cover transition-all duration-700 group-hover:scale-110">
+                        class="w-full h-full object-cover transition-all duration-1000 group-hover:scale-110">
                     <div
-                        class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 md:group-hover:opacity-100 transition-all duration-500 flex flex-col justify-end p-6 md:p-8">
+                        class="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/20 to-transparent opacity-80 group-hover:opacity-100 transition-opacity duration-500 flex flex-col justify-end p-8 md:p-10">
                         <span
-                            class="text-indigo-300 text-[10px] md:text-xs font-bold uppercase tracking-widest mb-1 md:mb-2">{{item.name}}
+                            class="text-indigo-300 text-xs font-bold uppercase tracking-[0.2em] mb-2 opacity-0 translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-700">
+                            {{item.name}}
                         </span>
-                        <h4 class="text-white text-xl md:text-2xl font-serif">{{item.name}}</h4>
-                        <p class="text-white/70 text-xs md:text-sm mt-1 md:mt-2">{{item.price}}</p>
+                        <h4
+                            class="text-white text-2xl md:text-3xl font-serif translate-y-4 group-hover:translate-y-0 transition-all duration-700 delay-100">
+                            {{item.name}}</h4>
                     </div>
                 </div>
                 {% empty %}
