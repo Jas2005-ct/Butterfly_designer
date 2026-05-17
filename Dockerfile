@@ -25,9 +25,12 @@ COPY . .
 # Expose the port Django runs on
 EXPOSE 8000
 
+# Compile static assets during Docker build for WhiteNoise
+RUN uv run python manage.py collectstatic --noinput
+
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Command to run migrations and start the server
-CMD uv run python manage.py runserver 0.0.0.0:${PORT:-8000}
+# Command to start gunicorn production WSGI server
+CMD uv run gunicorn core.wsgi:application --bind 0.0.0.0:${PORT:-8000}
