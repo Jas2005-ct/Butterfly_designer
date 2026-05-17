@@ -28,12 +28,10 @@ class About(models.Model):
     def __str__(self):
         return self.name
 
-    def save(self,*args,**kwargs):
-        if About.objects.exists():
-            if self.id:
-                super().save(*args, **kwargs)
-            else:
-                raise ValueError("Only one About object is allowed")
+    def save(self, *args, **kwargs):
+        if not self.pk and About.objects.exists():
+            raise ValueError("Only one About object is allowed")
+        super().save(*args, **kwargs)
        
     
 
