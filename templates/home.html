@@ -39,7 +39,11 @@
     <nav
         class="fixed top-0 w-full z-50 transition-all duration-300 py-4 px-6 md:px-12 flex justify-between items-center bg-transparent">
         <div class="flex items-center space-x-2">
+            {% if about and about.image %}
             <img src="{{ about.image.url }}" alt="logo" class="w-10 h-10 rounded-full object-cover">
+            {% else %}
+            <div class="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-xl">🦋</div>
+            {% endif %}
             <span class="text-2xl font-heading font-bold tracking-tight">BUTTERFLY <span
                     class="font-light text-slate-500 uppercase text-sm tracking-[0.3em]">Designer</span></span>
         </div>
@@ -152,7 +156,7 @@
                 </div>
                 <div
                     class="rounded-[3rem] overflow-hidden shadow-2xl transform rotate-2 hover:rotate-0 transition-all duration-700">
-                    <img src="{% if hero_image %}{{ hero_image.image.url }}{% else %}{% static 'images/hero.png' %}{% endif %}"
+                    <img src="{% if hero_image and hero_image.image %}{{ hero_image.image.url }}{% else %}{% static 'images/hero.png' %}{% endif %}"
                         alt="Butterfly Designer Masterpiece" class="w-full h-auto object-cover"
                         onerror="this.src='https://images.unsplash.com/photo-1558603668-6570496b66f8?auto=format&fit=crop&q=80'">
                 </div>
@@ -277,7 +281,7 @@
                         class="group cursor-pointer bg-orange-50/50 p-3 rounded-[2rem] border border-orange-100/50 hover:bg-orange-100 transition-all duration-500">
                         <div class="relative overflow-hidden rounded-[1.5rem] mb-4 aspect-square shadow-sm">
                             {% if employee.image %}
-                            <img src="{{ employee.image.url }}" alt="{{ employee.name }}"
+                            <img src="{{ employee.image }}" alt="{{ employee.name }}"
                                 class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
                             {% else %}
                             <div class="w-full h-full bg-orange-100 flex items-center justify-center">
@@ -481,7 +485,11 @@
         <div class="container mx-auto px-6 md:px-12 grid grid-cols-1 md:grid-cols-4 gap-12">
             <div class="col-span-1 md:col-span-2">
                 <div class="flex items-center space-x-2 mb-8">
+                    {% if about and about.image %}
                     <img src="{{ about.image.url }}" alt="logo" class="w-10 h-10 rounded-full object-cover">
+                    {% else %}
+                    <div class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-xl">🦋</div>
+                    {% endif %}
                     <span class="text-2xl font-heading font-bold tracking-tight">BUTTERFLY <span
                             class="font-light text-slate-400 uppercase text-sm tracking-[0.3em]">Designer</span></span>
                 </div>
