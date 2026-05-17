@@ -30,4 +30,4 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # Command to run migrations and start the server
-CMD ["uv", "run", "python", "manage.py", "runserver", "0.0.0.0:8000"]
+CMD uv run python manage.py runserver 0.0.0.0:${PORT:-8000}
