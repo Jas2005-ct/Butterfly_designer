@@ -9,10 +9,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const nav = document.querySelector('nav');
         if (nav) {
             if (window.scrollY > 50) {
-                nav.classList.add('nav-scrolled', 'bg-[#FAF9F6]/85', 'backdrop-blur-md', 'border-b', 'border-pink-100/50', 'shadow-sm', 'py-3');
+                nav.classList.add('nav-scrolled', 'bg-slate-100/85', 'backdrop-blur-md', 'border-b', 'border-slate-200/50', 'shadow-sm', 'py-3');
                 nav.classList.remove('bg-transparent', 'py-4');
             } else {
-                nav.classList.remove('nav-scrolled', 'bg-[#FAF9F6]/85', 'backdrop-blur-md', 'border-b', 'border-pink-100/50', 'shadow-sm', 'py-3');
+                nav.classList.remove('nav-scrolled', 'bg-slate-100/85', 'backdrop-blur-md', 'border-b', 'border-slate-200/50', 'shadow-sm', 'py-3');
                 nav.classList.add('bg-transparent', 'py-4');
             }
         }

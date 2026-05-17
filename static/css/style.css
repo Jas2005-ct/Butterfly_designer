@@ -63,11 +63,11 @@ body {
 .nav-scrolled {
     padding-top: 0.75rem !important;
     padding-bottom: 0.75rem !important;
-    background: rgba(250, 244, 245, 0.85) !important; /* Elegant rose-blush tinted ivory */
+    background: rgba(241, 245, 249, 0.85) !important; /* Premium translucent light gray */
     backdrop-filter: blur(20px) !important;
     -webkit-backdrop-filter: blur(20px) !important;
-    box-shadow: 0 4px 30px rgba(236, 72, 153, 0.05); /* Very subtle rose shadow depth */
-    border-bottom: 1px solid rgba(236, 72, 153, 0.1); /* Subtle pinkish borders */
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.02) !important; /* Extremely subtle dark shadow */
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8) !important; /* Clean slate-gray border */
 }
 
 /* Star Rating */
