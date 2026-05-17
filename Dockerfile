@@ -1,25 +1,24 @@
 # Use a slim Python image for a smaller footprint
+# Base image
 FROM python:3.11-slim
-
-# Install uv for fast dependency management
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Set the working directory
 WORKDIR /app
 
-# Install system dependencies (required for Pillow/Images)
+# Install system dependencies (required for Pillow/Images and psycopg2)
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only the dependency files first to leverage Docker's cache
-COPY pyproject.toml uv.lock ./
+# Copy only requirements first to leverage Docker build cache
+COPY requirements.txt ./
 
-# Install dependencies into a virtual environment
-RUN uv sync --frozen
+# Install Python dependencies via pip
+RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application code
+# Copy application code
 COPY . .
 
 # Expose the port Django runs on
