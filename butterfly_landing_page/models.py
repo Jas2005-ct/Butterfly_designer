@@ -5,7 +5,7 @@ from django.db import models
 class Items(models.Model):
     name=models.CharField(max_length=100)
     price=models.DecimalField(max_digits=10,null=True,blank=True, decimal_places=2)
-    image=models.ImageField(upload_to='images/')
+    image=models.ImageField(upload_to='items/')
     created_at=models.DateTimeField(auto_now_add=True)
     
     def __str__(self):
@@ -15,6 +15,7 @@ class About(models.Model):
     name = models.CharField(max_length=100)
     address=models.TextField()
     phone=models.CharField(max_length=15)
+    image=models.ImageField(upload_to='about/',blank=True,null=True)
     email=models.EmailField()
     instagram=models.URLField(null=True,blank=True)
     facebook=models.URLField(null=True,blank=True)
@@ -37,7 +38,7 @@ class About(models.Model):
 
 class Employee(models.Model):
     name=models.CharField(max_length=100)
-    image=models.ImageField(upload_to='images/',blank=True,null=True)
+    image=models.ImageField(upload_to='employees/',blank=True,null=True)
     experience=models.IntegerField()
     best_known_for=models.CharField(max_length=100)
     about=models.TextField(null=True,blank=True)

@@ -24,8 +24,13 @@
     <!-- External CSS -->
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
 
-    <link rel="icon"
+    <!-- Favicon -->
+    {% if about and about.image %}
+    <link class="favicon-el" rel="icon" href="{{ about.image.url }}">
+    {% else %}
+    <link class="favicon-el" rel="icon"
         href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦋</text></svg>">
+    {% endif %}
 </head>
 
 <body class="bg-[#FAF9F6] text-slate-900 overflow-x-hidden">
@@ -34,10 +39,7 @@
     <nav
         class="fixed top-0 w-full z-50 transition-all duration-300 py-4 px-6 md:px-12 flex justify-between items-center bg-transparent">
         <div class="flex items-center space-x-2">
-            <div
-                class="w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-xl ">
-                B
-            </div>
+            <img src="{{ about.image.url }}" alt="logo" class="w-10 h-10 rounded-full object-cover">
             <span class="text-2xl font-heading font-bold tracking-tight">BUTTERFLY <span
                     class="font-light text-slate-500 uppercase text-sm tracking-[0.3em]">Designer</span></span>
         </div>
@@ -56,7 +58,7 @@
     </nav>
 
     <!-- Hero Section -->
-    <header class="relative min-h-screen flex items-center pt-20 hero-gradient">
+    <header class="relative min-h-screen flex items-center pt-20 hero-gradient overflow-hidden">
         <div class="container mx-auto px-6 md:px-12 grid md:grid-cols-2 gap-12 items-center">
             <div class="z-10">
                 <span
@@ -141,7 +143,7 @@
     </header>
 
     <!-- Services Section -->
-    <section id="services" class="py-24 bg-white">
+    <section id="services" class="py-24 bg-white overflow-hidden">
         <div class="container mx-auto px-6 md:px-12">
             <div class="text-center max-w-2xl mx-auto mb-16">
                 <h2 class="text-4xl md:text-5xl font-serif mb-6">Our Expertise</h2>
@@ -151,7 +153,7 @@
             </div>
 
             <div
-                class="flex md:grid md:grid-cols-3 gap-6 overflow-x-auto md:overflow-visible pb-8 md:pb-0 snap-x no-scrollbar">
+                class="flex md:grid md:grid-cols-3 gap-6 overflow-x-auto md:overflow-visible pb-8 md:pb-0 snap-x no-scrollbar -mx-6 px-6">
                 <!-- Service 1 -->
                 <div
                     class="flex-none w-72 md:w-auto snap-start group p-8 rounded-[2rem] bg-[#FAF9F6] hover:bg-indigo-600 transition-all duration-500 cursor-pointer">
@@ -228,7 +230,7 @@
             </div>
 
             <!-- Horizontal Scroll Wrapper -->
-            <div id="staff-scroll" class="flex space-x-6 overflow-x-auto pb-12 snap-x no-scrollbar">
+            <div id="staff-scroll" class="flex space-x-6 overflow-x-auto pb-12 snap-x no-scrollbar -mx-6 px-6">
                 {% for employee in employees %}
                 <div class="flex-none w-48 md:w-64 snap-start">
                     <div onclick="openStaffModal('{{ employee.id }}')"
@@ -335,7 +337,7 @@
     </script>
 
     <!-- Gallery Section -->
-    <section id="gallery" class="py-16 hero-gradient">
+    <section id="gallery" class="py-16 hero-gradient overflow-hidden">
         <div class="container mx-auto px-6 md:px-4">
             <div class="flex flex-col md:flex-row justify-between items-end mb-16">
                 <div class="max-w-xl">
@@ -352,10 +354,10 @@
             </div>
 
             <!-- Horizontal Runway Scroll -->
-            <div class="flex gap-6 overflow-x-auto pb-12 snap-x no-scrollbar">
+            <div class="flex gap-6 overflow-x-auto pb-12 snap-x no-scrollbar -mx-6 px-6">
                 {% for item in items %}
                 <div
-                    class="flex-none w-[260px] md:w-[350px] snap-center relative group overflow-hidden rounded-[2.5rem] h-[350px] md:h-[450px] shadow-lg">
+                    class="flex-none w-[260px] md:w-[350px] snap-start relative group overflow-hidden rounded-[2.5rem] h-[350px] md:h-[450px] shadow-lg">
                     <img src="{% if item.image %}{{ item.image.url }}{% else %}https://images.unsplash.com/photo-1566174053879-31528523f8ae?auto=format&fit=crop&q=80{% endif %}"
                         class="w-full h-full object-cover transition-all duration-1000 group-hover:scale-110">
                     <div
@@ -396,7 +398,7 @@
                 </div>
             </div>
 
-            <div id="review-scroll" class="flex space-x-6 overflow-x-auto pb-8 snap-x no-scrollbar">
+            <div id="review-scroll" class="flex space-x-6 overflow-x-auto pb-8 snap-x no-scrollbar -mx-6 px-6">
                 {% for review in reviews %}
                 <div
                     class="flex-none w-80 md:w-96 snap-start bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between">
@@ -435,13 +437,11 @@
     </section>
 
     <!-- Footer -->
-    <footer id="contact" class="bg-slate-900 text-white py-20">
-        <div class="container mx-auto px-6 md:px-12 grid md:grid-cols-4 gap-12">
-            <div class="col-span-2">
+    <footer id="contact" class="bg-slate-900 text-white py-20 overflow-hidden">
+        <div class="container mx-auto px-6 md:px-12 grid grid-cols-1 md:grid-cols-4 gap-12">
+            <div class="col-span-1 md:col-span-2">
                 <div class="flex items-center space-x-2 mb-8">
-                    <div
-                        class="w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-xl">
-                        B</div>
+                    <img src="{{ about.image.url }}" alt="logo" class="w-10 h-10 rounded-full object-cover">
                     <span class="text-2xl font-heading font-bold tracking-tight">BUTTERFLY <span
                             class="font-light text-slate-400 uppercase text-sm tracking-[0.3em]">Designer</span></span>
                 </div>
@@ -449,14 +449,15 @@
                     Redefining women's fashion through bespoke tailoring and designer craftsmanship. Visit our studio
                     for a personal consultation.
                 </p>
-                <div class="flex space-x-6">
+                <!-- To do -->
+                <!-- <div class="flex space-x-6">
                     <a href="#"
                         class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center hover:bg-indigo-600 transition-all">FB</a>
                     <a href="#"
                         class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center hover:bg-indigo-600 transition-all">IG</a>
                     <a href="#"
                         class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center hover:bg-indigo-600 transition-all">TW</a>
-                </div>
+                </div> -->
             </div>
 
             <div>
