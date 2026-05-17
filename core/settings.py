@@ -141,8 +141,7 @@ STATICFILES_DIRS = [
 ]
 
 # Enable WhiteNoise's GZip compression of static assets without strict manifest crashes.
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
-
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 # --- SUPABASE STORAGE CONFIGURATION ---
 MEDIA_ROOT = BASE_DIR / 'media'
 USE_SUPABASE = os.environ.get('AWS_ACCESS_KEY_ID') is not None
