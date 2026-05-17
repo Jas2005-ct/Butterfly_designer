@@ -1,0 +1,494 @@
+{% load static %}
+{% load tailwind_tags %}
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Butterfly Designer | Premium Women's Tailoring & Bridal Boutique</title>
+    <meta name="description"
+        content="Butterfly Designer offers bespoke tailoring, bridal wear, and designer blouses in Tamil Nadu. Experience elegance and precision in every stitch.">
+    <meta name="keywords"
+        content="boutique, tailoring, bridal wear, designer blouses, Tamil Nadu fashion, bespoke women's wear">
+
+    <!-- Open Graph for Social Media -->
+    <meta property="og:title" content="Butterfly Designer | Premium Women's Tailoring">
+    <meta property="og:description" content="Exquisite designer wear and perfect tailoring for the modern woman.">
+    <meta property="og:type" content="website">
+
+    <!-- Tailwind via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- External CSS -->
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦋</text></svg>">
+</head>
+
+<body class="bg-[#FAF9F6] text-slate-900 overflow-x-hidden">
+    <div id="progress-bar"></div>
+
+    <!-- Navbar -->
+    <nav
+        class="fixed top-0 w-full z-50 transition-all duration-300 glass py-4 px-6 md:px-12 flex justify-between items-center">
+        <div class="flex items-center space-x-2">
+            <div
+                class="w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-xl ">
+                B
+            </div>
+            <span class="text-2xl font-heading font-bold tracking-tight">BUTTERFLY <span
+                    class="font-light text-slate-500 uppercase text-sm tracking-[0.3em]">Designer</span></span>
+        </div>
+
+        <div class="hidden md:flex space-x-10 font-medium text-sm uppercase tracking-widest text-slate-600">
+            <a href="#" class="hover:text-indigo-600 transition-colors">Home</a>
+            <a href="#services" class="hover:text-indigo-600 transition-colors">Services</a>
+            <a href="#gallery" class="hover:text-indigo-600 transition-colors">Gallery</a>
+            <a href="#about" class="hover:text-indigo-600 transition-colors">About</a>
+        </div>
+
+        <a href="#contact"
+            class="bg-slate-900 text-white px-8 py-3 rounded-full text-sm font-bold hover:bg-indigo-600 transition-all transform hover:scale-105 shadow-lg">
+            BOOK NOW
+        </a>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="relative min-h-screen flex items-center pt-20 hero-gradient">
+        <div class="container mx-auto px-6 md:px-12 grid md:grid-cols-2 gap-12 items-center">
+            <div class="z-10">
+                <span
+                    class="inline-flex items-center space-x-2 px-4 py-1 rounded-full bg-indigo-50 text-indigo-600 font-bold text-xs uppercase tracking-widest mb-6">
+                    <span>Elegance never goes out of style</span>
+                    <!-- <i data-lucide="sparkles" class="w-3 h-3"></i> -->
+                </span>
+                <h1 class="text-5xl md:text-7xl font-serif leading-tight mb-8">
+                    Crafting <span class=" font-light">Grace</span> <br> & Confidence.
+                </h1>
+                <p class="text-lg text-slate-600 mb-8 max-w-lg leading-relaxed">
+                    At Butterfly Designer, we craft outfits that make every woman feel confident, graceful, and
+                    beautiful.
+                    From perfect tailoring to exclusive designer wear, we bring your dream outfit to life with care and
+                    precision
+                </p>
+
+                <!-- Feature List -->
+                <div class="grid grid-cols-2 gap-4 mb-10 text-sm font-medium text-slate-700">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                            <i data-lucide="gem" class="w-4 h-4"></i>
+                        </div>
+                        <span>Bridal Wear</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <div class="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                            <i data-lucide="sparkles" class="w-4 h-4"></i>
+                        </div>
+                        <span>Designer Blouses</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <div class="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                            <i data-lucide="scissors" class="w-4 h-4"></i>
+                        </div>
+                        <span>Custom Stitching</span>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <div class="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                            <i data-lucide="palette" class="w-4 h-4"></i>
+                        </div>
+                        <span>Trendy Collections</span>
+                    </div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-6">
+                    <a href="#services"
+                        class="bg-indigo-600 text-white px-10 py-4 rounded-xl font-bold shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all text-center">
+                        Explore Services
+                    </a>
+                    <a href="#gallery"
+                        class="border border-slate-200 px-10 py-4 rounded-xl font-bold hover:bg-white transition-all text-center">
+                        View Lookbook
+                    </a>
+                </div>
+            </div>
+            <div class="relative">
+                <div
+                    class="absolute -top-10 -left-10 w-40 h-40 bg-pink-100 rounded-full mix-blend-multiply filter blur-3xl opacity-70">
+                </div>
+                <div
+                    class="absolute -bottom-10 -right-10 w-40 h-40 bg-purple-100 rounded-full mix-blend-multiply filter blur-3xl opacity-70">
+                </div>
+                <div
+                    class="rounded-[3rem] overflow-hidden shadow-2xl transform rotate-2 hover:rotate-0 transition-all duration-700">
+                    <img src="{% if hero_image %}{{ hero_image.image.url }}{% else %}{% static 'images/hero.png' %}{% endif %}"
+                        alt="Butterfly Designer Masterpiece" class="w-full h-auto object-cover"
+                        onerror="this.src='https://images.unsplash.com/photo-1558603668-6570496b66f8?auto=format&fit=crop&q=80'">
+                </div>
+                <!-- Floating Info Box -->
+                <div class="absolute bottom-10 -left-6 glass p-6 rounded-2xl shadow-xl max-w-[200px]">
+                    <div class="flex -space-x-2 mb-3">
+                        <img src="https://i.pravatar.cc/100?u=1" class="w-8 h-8 rounded-full border-2 border-white">
+                        <img src="https://i.pravatar.cc/100?u=2" class="w-8 h-8 rounded-full border-2 border-white">
+                        <img src="https://i.pravatar.cc/100?u=3" class="w-8 h-8 rounded-full border-2 border-white">
+                    </div>
+                    <p class="text-xs font-bold text-slate-800">500+ Happy Brides</p>
+                    <p class="text-[10px] text-slate-500 mt-1">Trusted across the city for premium stitching.</p>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Services Section -->
+    <section id="services" class="py-24 bg-white">
+        <div class="container mx-auto px-6 md:px-12">
+            <div class="text-center max-w-2xl mx-auto mb-16">
+                <h2 class="text-4xl md:text-5xl font-serif mb-6">Our Expertise</h2>
+                <div class="w-20 h-1 bg-indigo-600 mx-auto mb-6"></div>
+                <p class="text-slate-500">From everyday elegance to your big day's masterpiece, we provide a full range
+                    of tailoring services designed for the feminine silhouette.</p>
+            </div>
+
+            <div
+                class="flex md:grid md:grid-cols-3 gap-6 overflow-x-auto md:overflow-visible pb-8 md:pb-0 snap-x no-scrollbar">
+                <!-- Service 1 -->
+                <div
+                    class="flex-none w-72 md:w-auto snap-start group p-8 rounded-[2rem] bg-[#FAF9F6] hover:bg-indigo-600 transition-all duration-500 cursor-pointer">
+                    <div
+                        class="w-14 h-14 md:w-16 md:h-16 bg-white rounded-2xl flex items-center justify-center mb-6 md:mb-8 shadow-sm group-hover:rotate-12 transition-all">
+                        <svg class="w-7 h-7 md:w-8 md:h-8 text-indigo-600" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758L5 19m0-14l4.121 4.121" />
+                        </svg>
+                    </div>
+                    <h3
+                        class="text-xl md:text-2xl font-heading font-bold mb-4 group-hover:text-white transition-colors">
+                        Custom
+                        Stitching</h3>
+                    <p class="text-sm md:text-base text-slate-500 group-hover:text-indigo-100 transition-colors">Precise
+                        measurements and
+                        expert cuts for blouses, kurtis, and trousers that fit like a second skin.</p>
+                </div>
+
+                <!-- Service 2 -->
+                <div
+                    class="flex-none w-72 md:w-auto snap-start group p-8 rounded-[2rem] bg-[#FAF9F6] hover:bg-indigo-600 transition-all duration-500 cursor-pointer">
+                    <div
+                        class="w-14 h-14 md:w-16 md:h-16 bg-white rounded-2xl flex items-center justify-center mb-6 md:mb-8 shadow-sm group-hover:rotate-12 transition-all">
+                        <i data-lucide="sparkles" class="w-7 h-7 md:w-8 md:h-8 text-indigo-600"></i>
+                    </div>
+                    <h3
+                        class="text-xl md:text-2xl font-heading font-bold mb-4 group-hover:text-white transition-colors">
+                        Embroidery
+                        Blouses</h3>
+                    <p class="text-sm md:text-base text-slate-500 group-hover:text-indigo-100 transition-colors">
+                        Specialized Aari work, heavy bridal embroidery, and designer patterns tailored to perfection.
+                    </p>
+                </div>
+
+                <!-- Service 3 -->
+                <div
+                    class="flex-none w-72 md:w-auto snap-start group p-8 rounded-[2rem] bg-[#FAF9F6] hover:bg-indigo-600 transition-all duration-500 cursor-pointer">
+                    <div
+                        class="w-14 h-14 md:w-16 md:h-16 bg-white rounded-2xl flex items-center justify-center mb-6 md:mb-8 shadow-sm group-hover:rotate-12 transition-all">
+                        <i data-lucide="gem" class="w-7 h-7 md:w-8 md:h-8 text-indigo-600"></i>
+                    </div>
+                    <h3
+                        class="text-xl md:text-2xl font-heading font-bold mb-4 group-hover:text-white transition-colors">
+                        Grand
+                        Lehengas</h3>
+                    <p class="text-sm md:text-base text-slate-500 group-hover:text-indigo-100 transition-colors">
+                        Custom-made bridal and occasion lehengas with premium fabrics and majestic craftsmanship.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <!-- Our Experienced Staff -->
+    <section id="staff" class="py-16 bg-white overflow-hidden">
+        <div class="container mx-auto px-6 md:px-12">
+            <div class="flex flex-col md:flex-row justify-between items-end mb-8">
+                <div class="max-w-xl">
+
+                    <span class="text-indigo-600 font-bold text-xs uppercase tracking-widest mb-3 inline-block">MEET OUR
+                        TEAM</span>
+                    <h2 class="text-4xl md:text-5xl font-serif mb-4">Experienced Masters Of Design</h2>
+                    <p class="text-slate-500">Decades of collective experience in luxury tailoring. Scroll to meet our
+                        team.</p>
+                </div>
+                <div class="hidden md:flex space-x-4 mb-2">
+                    <button onclick="document.getElementById('staff-scroll').scrollBy({left: -400, behavior: 'smooth'})"
+                        class="w-12 h-12 rounded-full border border-slate-200 flex items-center justify-center hover:bg-slate-900 hover:text-white transition-all">←</button>
+                    <button onclick="document.getElementById('staff-scroll').scrollBy({left: 400, behavior: 'smooth'})"
+                        class="w-12 h-12 rounded-full border border-slate-200 flex items-center justify-center hover:bg-slate-900 hover:text-white transition-all">→</button>
+                </div>
+            </div>
+
+            <!-- Horizontal Scroll Wrapper -->
+            <div id="staff-scroll" class="flex space-x-6 overflow-x-auto pb-12 snap-x no-scrollbar">
+                {% for employee in employees %}
+                <div class="flex-none w-48 md:w-64 snap-start">
+                    <div onclick="openStaffModal('{{ employee.id }}')"
+                        class="group cursor-pointer bg-orange-50/50 p-3 rounded-[2rem] border border-orange-100/50 hover:bg-orange-100 transition-all duration-500">
+                        <div class="relative overflow-hidden rounded-[1.5rem] mb-4 aspect-square shadow-sm">
+                            {% if employee.image %}
+                            <img src="{{ employee.image.url }}" alt="{{ employee.name }}"
+                                class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                            {% else %}
+                            <div class="w-full h-full bg-orange-100 flex items-center justify-center">
+                                <span class="text-orange-300 font-serif text-5xl">{{ employee.name|first }}</span>
+                            </div>
+                            {% endif %}
+                            <div
+                                class="absolute inset-0 bg-orange-900/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-center justify-center">
+                                <span
+                                    class="bg-white text-orange-900 px-4 py-2 rounded-full text-[10px] font-bold tracking-widest uppercase">Profile</span>
+                            </div>
+                        </div>
+                        <div class="text-center px-2">
+                            <h3 class="text-lg font-serif mb-1 text-slate-800">{{ employee.name }}</h3>
+                            <p class="text-orange-600 text-[10px] font-bold uppercase tracking-wider">
+                                {{ employee.best_known_for }}</p>
+                        </div>
+                    </div>
+                </div>
+                {% empty %}
+                <div class="w-full text-center py-12 text-slate-400 italic">
+                    Our artisans are currently in the studio...
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+
+    <!-- Artisan Detail Modal -->
+    <div id="staffModal" class="fixed inset-0 z-[100] hidden overflow-y-auto" aria-labelledby="modal-title"
+        role="dialog" aria-modal="true">
+        <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            <div onclick="closeStaffModal()" class="fixed inset-0 transition-opacity bg-slate-900/90 backdrop-blur-sm"
+                aria-hidden="true"></div>
+
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+            <div id="modal-content"
+                class="inline-block align-bottom bg-white rounded-[2.5rem] text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+                <div class="absolute top-6 right-6 z-10">
+                    <button onclick="closeStaffModal()"
+                        class="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center hover:bg-slate-900 hover:text-white transition-all text-xl">&times;</button>
+                </div>
+
+                <!-- Content will be injected here via AJAX -->
+                <div id="modalContent">
+                    <div class="flex items-center justify-center p-20">
+                        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
+                        <span class="ml-4 font-serif text-xl">Loading Artisan Profile...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+
+    <script>
+        function openStaffModal(id) {
+            // Show the modal and the loading spinner
+            document.getElementById('staffModal').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+            document.getElementById('modalContent').innerHTML = `
+                <div class="flex items-center justify-center p-20">
+                    <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600"></div>
+                    <span class="ml-4 font-serif text-xl">Loading Artisan Profile...</span>
+                </div>`;
+
+            // Fetch the detail from your new view
+            fetch(`/employee/${id}/`)
+                .then(response => response.text())
+                .then(html => {
+                    document.getElementById('modalContent').innerHTML = html;
+                })
+                .catch(err => {
+                    document.getElementById('modalContent').innerHTML = `
+                        <div class="p-20 text-center">
+                            <p class="text-red-500 font-bold">Error loading profile.</p>
+                            <button onclick="closeStaffModal()" class="mt-4 text-indigo-600 underline">Close</button>
+                        </div>`;
+                });
+        }
+
+        function closeStaffModal() {
+            document.getElementById('staffModal').classList.add('hidden');
+            document.body.style.overflow = 'auto';
+        }
+    </script>
+
+    <!-- Gallery Section -->
+    <section id="gallery" class="py-16 hero-gradient">
+        <div class="container mx-auto px-6 md:px-4">
+            <div class="flex flex-col md:flex-row justify-between items-end mb-16">
+                <div class="max-w-xl">
+                    <h2 class="text-4xl md:text-5xl font-serif mb-6">Our Lookbook</h2>
+                    <p class="text-slate-600 leading-relaxed">A glimpse into the masterpieces created at our atelier.
+                        Every piece tells a story of elegance and dedication.</p>
+                </div>
+                <div class="mt-8 md:mt-0">
+                    <button
+                        class="text-indigo-600 font-bold border-b-2 border-indigo-600 pb-2 hover:text-indigo-800 transition-all">
+                        <a href="{{ about.instagram }}">Follow us on Instagram</a>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Horizontal Runway Scroll -->
+            <div class="flex gap-6 overflow-x-auto pb-12 snap-x no-scrollbar">
+                {% for item in items %}
+                <div
+                    class="flex-none w-[260px] md:w-[350px] snap-center relative group overflow-hidden rounded-[2.5rem] h-[350px] md:h-[450px] shadow-lg">
+                    <img src="{% if item.image %}{{ item.image.url }}{% else %}https://images.unsplash.com/photo-1566174053879-31528523f8ae?auto=format&fit=crop&q=80{% endif %}"
+                        class="w-full h-full object-cover transition-all duration-1000 group-hover:scale-110">
+                    <div
+                        class="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/20 to-transparent opacity-80 group-hover:opacity-100 transition-opacity duration-500 flex flex-col justify-end p-8 md:p-10">
+                        <span
+                            class="text-indigo-300 text-xs font-bold uppercase tracking-[0.2em] mb-2 opacity-0 translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-700">
+                            {{item.name}}
+                        </span>
+                        <h4
+                            class="text-white text-2xl md:text-3xl font-serif translate-y-4 group-hover:translate-y-0 transition-all duration-700 delay-100">
+                            {{item.name}}</h4>
+                    </div>
+                </div>
+                {% empty %}
+                <div class="w-full text-center py-12 text-slate-400 italic">
+                    Our latest collection is arriving soon...
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials Section -->
+    <section id="reviews" class="py-16 bg-slate-50 overflow-hidden">
+        <div class="container mx-auto px-6 md:px-12">
+            <div class="flex flex-col md:flex-row justify-between items-center mb-10">
+                <div>
+                    <span
+                        class="text-indigo-600 font-bold text-xs uppercase tracking-widest mb-2 inline-block">Testimonials</span>
+                    <h2 class="text-3xl font-serif">Client Love</h2>
+                </div>
+                <div class="flex space-x-3 mt-4 md:mt-0">
+                    <button
+                        onclick="document.getElementById('review-scroll').scrollBy({left: -350, behavior: 'smooth'})"
+                        class="w-10 h-10 rounded-full border border-slate-200 flex items-center justify-center hover:bg-slate-900 hover:text-white transition-all text-sm">←</button>
+                    <button onclick="document.getElementById('review-scroll').scrollBy({left: 350, behavior: 'smooth'})"
+                        class="w-10 h-10 rounded-full border border-slate-200 flex items-center justify-center hover:bg-slate-900 hover:text-white transition-all text-sm">→</button>
+                </div>
+            </div>
+
+            <div id="review-scroll" class="flex space-x-6 overflow-x-auto pb-8 snap-x no-scrollbar">
+                {% for review in reviews %}
+                <div
+                    class="flex-none w-80 md:w-96 snap-start bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-center space-x-1 mb-4 text-yellow-400">
+                            {% for i in "12345"|make_list %}
+                            {% if forloop.counter <= review.rating %} <svg class="w-4 h-4 fill-current"
+                                viewBox="0 0 20 20">
+                                <path
+                                    d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                </svg>
+                                {% endif %}
+                                {% endfor %}
+                        </div>
+                        <p class="text-slate-600 italic text-sm leading-relaxed mb-6">
+                            "{{ review.review }}"
+                        </p>
+                    </div>
+
+                    <div class="flex items-center space-x-3 pt-4 border-t border-slate-50">
+                        <div
+                            class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-[10px]">
+                            {{ review.name|first }}
+                        </div>
+                        <div>
+                            <h4 class="font-bold text-slate-900 text-xs">{{ review.name }}</h4>
+                            <p class="text-slate-400 text-[10px] uppercase tracking-widest">Verified Client</p>
+                        </div>
+                    </div>
+                </div>
+                {% empty %}
+                <p class="text-slate-400 italic">Be our next success story.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer id="contact" class="bg-slate-900 text-white py-20">
+        <div class="container mx-auto px-6 md:px-12 grid md:grid-cols-4 gap-12">
+            <div class="col-span-2">
+                <div class="flex items-center space-x-2 mb-8">
+                    <div
+                        class="w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-xl">
+                        B</div>
+                    <span class="text-2xl font-heading font-bold tracking-tight">BUTTERFLY <span
+                            class="font-light text-slate-400 uppercase text-sm tracking-[0.3em]">Designer</span></span>
+                </div>
+                <p class="text-slate-400 max-w-sm leading-relaxed mb-8">
+                    Redefining women's fashion through bespoke tailoring and designer craftsmanship. Visit our studio
+                    for a personal consultation.
+                </p>
+                <div class="flex space-x-6">
+                    <a href="#"
+                        class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center hover:bg-indigo-600 transition-all">FB</a>
+                    <a href="#"
+                        class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center hover:bg-indigo-600 transition-all">IG</a>
+                    <a href="#"
+                        class="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center hover:bg-indigo-600 transition-all">TW</a>
+                </div>
+            </div>
+
+            <div>
+                <h5 class="text-xl font-bold mb-8">Quick Links</h5>
+                <ul class="space-y-4 text-slate-400">
+                    <li><a href="#" class="hover:text-white transition-colors">Our Process</a></li>
+                    <li><a href="#" class="hover:text-white transition-colors">Pricing Guide</a></li>
+                    <li><a href="#" class="hover:text-white transition-colors">F.A.Q</a></li>
+                    <li><a href="#" class="hover:text-white transition-colors">Book Consultation</a></li>
+                </ul>
+            </div>
+
+            <div>
+                {% if about %}
+                <h5 class="text-xl font-bold mb-8">Visit Us</h5>
+                <p class="text-slate-400 mb-4 leading-relaxed">
+                    {{about.address}}
+                </p>
+                <p class="text-slate-400">{{about.email}}</p>
+                <p class="text-white font-bold mt-4">{{about.phone}}</p>
+                {% endif %}
+            </div>
+        </div>
+        <div
+            class="container mx-auto px-6 md:px-12 mt-20 pt-8 border-t border-slate-800 text-center text-slate-500 text-sm">
+            &copy; 2026 Butterfly Designer. All rights reserved.
+        </div>
+    </footer>
+
+    <!-- External JS -->
+    <script src="{% static 'js/main.js' %}"></script>
+</body>
+
+</html>
