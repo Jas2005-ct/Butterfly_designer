@@ -4,17 +4,8 @@ document.addEventListener('DOMContentLoaded', function() {
         lucide.createIcons();
     }
 
-    // Scroll Progress Bar
+    // Navbar Scroll Effect
     window.onscroll = function() {
-        let winScroll = document.body.scrollTop || document.documentElement.scrollTop;
-        let height = document.documentElement.scrollHeight - document.documentElement.clientHeight;
-        let scrolled = (winScroll / height) * 100;
-        let progressBar = document.getElementById("progress-bar");
-        if (progressBar) {
-            progressBar.style.width = scrolled + "%";
-        }
-        
-        // Navbar Scroll Effect
         const nav = document.querySelector('nav');
         if (nav) {
             if (window.scrollY > 50) {

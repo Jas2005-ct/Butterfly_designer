@@ -58,21 +58,16 @@ body {
     transform: translateY(0);
 }
 
-#progress-bar {
-    height: 3px;
-    background: linear-gradient(to right, #6366f1, #ec4899);
-    width: 0%;
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 100;
-}
+
 
 .nav-scrolled {
     padding-top: 0.75rem !important;
     padding-bottom: 0.75rem !important;
-    background: rgba(255, 255, 255, 0.9) !important;
+    background: rgba(255, 255, 255, 0.75) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
 }
 
 /* Star Rating */
