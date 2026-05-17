@@ -140,8 +140,8 @@ STATICFILES_DIRS = [
     BASE_DIR / 'static',
 ]
 
-# Enable WhiteNoise's GZip compression of static assets.
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# Enable WhiteNoise's GZip compression of static assets without strict manifest crashes.
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 
 # --- SUPABASE STORAGE CONFIGURATION ---
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -174,7 +174,7 @@ if USE_SUPABASE:
             "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
         },
         "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
         },
     }
 else:
@@ -185,7 +185,7 @@ else:
             "BACKEND": "django.core.files.storage.FileSystemStorage",
         },
         "staticfiles": {
-            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
         },
     }
 # --------------------------------------
