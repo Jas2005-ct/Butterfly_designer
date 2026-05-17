@@ -7,6 +7,95 @@
 
 body {
     font-family: 'Outfit', sans-serif;
+    background: #FAF9F6;
+    color: #1f2937;
+    overflow-x: hidden;
+}
+
+.font-serif {
+    font-family: 'Playfair Display', serif;
+}
+
+.font-heading {
+    font-family: 'Outfit', sans-serif;
+}
+
+.hero-gradient {
+    background: radial-gradient(circle at 10% 20%, rgba(255, 255, 255, 1) 0%, rgba(245, 245, 255, 1) 90%);
+}
+
+/* Glass effect used throughout the site */
+.glass {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 1rem;
+}
+
+/* Primary navbar style with subtle blur (glassmorphism) */
+nav {
+    background: rgba(99, 102, 241, 0.6); /* --primary with opacity */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.02);
+    transition: all 0.3s ease;
+}
+
+/* Navbar style when page is scrolled – slightly darker and more opaque */
+.nav-scrolled {
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+    background: rgba(250, 249, 246, 0.75) !important; /* matches #FAF9F6 */
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.03) !important;
+    border-bottom: 1px solid rgba(230, 225, 220, 0.5) !important;
+}
+
+/* Utility to hide scrollbars */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+@keyframes float {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+    100% { transform: translateY(0px); }
+}
+
+.float-animation {
+    animation: float 4s ease-in-out infinite;
+}
+
+/* Scroll reveal animations */
+.reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: all 0.8s ease-out;
+}
+.reveal.active {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Star rating component */
+.star-rating input:checked ~ label { color: #8B5CF6; }
+.star-rating label:hover, .star-rating label:hover ~ label { color: #A78BFA; }
+
+
+:root {
+    --primary: #6366f1;
+    --secondary: #ec4899;
+}
+
+body {
+    font-family: 'Outfit', sans-serif;
 }
 
 .font-serif {
@@ -27,11 +116,59 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
+/* Navbar default style with primary color and blur */
+nav {
+    background: rgba(99, 102, 241, 0.6); /* --primary with opacity */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.02);
+}
+
+/* Hide scrollbars */
 .no-scrollbar::-webkit-scrollbar {
     display: none;
 }
-
 .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.02);
+}
+
+
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.02);
+}
+
+
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+}
+
+
     -ms-overflow-style: none;
     scrollbar-width: none;
 }
@@ -63,11 +200,11 @@ body {
 .nav-scrolled {
     padding-top: 0.75rem !important;
     padding-bottom: 0.75rem !important;
-    background: rgba(241, 245, 249, 0.85) !important; /* Premium translucent light gray */
-    backdrop-filter: blur(20px) !important;
-    -webkit-backdrop-filter: blur(20px) !important;
-    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.02) !important; /* Extremely subtle dark shadow */
-    border-bottom: 1px solid rgba(226, 232, 240, 0.8) !important; /* Clean slate-gray border */
+    background: rgba(250, 249, 246, 0.75) !important; /* Premium frosted glass matching #FAF9F6 */
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.03) !important; /* Extremely subtle shadow */
+    border-bottom: 1px solid rgba(230, 225, 220, 0.5) !important; /* Soft border matching the warm theme */
 }
 
 /* Star Rating */
