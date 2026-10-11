@@ -1,6 +1,6 @@
 import uuid
 
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 
@@ -24,16 +24,18 @@ class ServiceType(models.TextChoices):
 def generate_order_number():
     year = timezone.now().strftime("%y")
     prefix = f"BD-{year}-"
-    last = (
-        Order.objects.filter(order_number__startswith=prefix)
-        .order_by("-order_number")
-        .values_list("order_number", flat=True)
-        .first()
-    )
-    if last:
-        next_num = int(last.rsplit("-", 1)[-1]) + 1
-    else:
-        next_num = 1
+    with transaction.atomic():
+        last = (
+            Order.objects.select_for_update()
+            .filter(order_number__startswith=prefix)
+            .order_by("-order_number")
+            .values_list("order_number", flat=True)
+            .first()
+        )
+        if last:
+            next_num = int(last.rsplit("-", 1)[-1]) + 1
+        else:
+            next_num = 1
     return f"{prefix}{next_num:04d}"
 
 

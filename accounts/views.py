@@ -25,6 +25,8 @@ def shop_login(request):
 
 @login_required
 def shop_logout(request):
+    if request.method != "POST":
+        return redirect("orders:board")
     logout(request)
     return redirect("accounts:login")
 
@@ -43,6 +45,8 @@ def user_create(request):
         role = request.POST.get("role") or Role.MANAGER
         if not username or not password:
             messages.error(request, "Username and password are required.")
+        elif len(password) < 6:
+            messages.error(request, "Password must be at least 6 characters.")
         elif role not in Role.values:
             messages.error(request, "Invalid role.")
         elif User.objects.filter(username=username).exists():
@@ -60,7 +64,7 @@ def user_create(request):
 def user_toggle_active(request, user_id):
     if request.method != "POST":
         return redirect("accounts:user_list")
-    target = get_object_or_404(User, id=user_id)
+    target = get_object_or_404(User.objects.select_related("profile"), id=user_id)
     if target == request.user:
         messages.error(request, "You cannot deactivate your own account.")
     else:

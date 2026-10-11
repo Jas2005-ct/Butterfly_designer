@@ -66,6 +66,13 @@ class LoginViewTests(TestCase):
         response = self.client.post(reverse("accounts:logout"))
         self.assertRedirects(response, reverse("accounts:login"))
 
+    def test_logout_get_does_not_log_out(self):
+        User.objects.create_user(username="staff", password="secret123")
+        self.client.login(username="staff", password="secret123")
+        response = self.client.get(reverse("accounts:logout"))
+        self.assertRedirects(response, reverse("orders:board"))
+        self.assertTrue("_auth_user_id" in self.client.session)
+
 
 class AccessControlTests(TestCase):
     def setUp(self):
@@ -140,3 +147,20 @@ class UserManagementTests(TestCase):
         self.client.post(url)
         self.admin.refresh_from_db()
         self.assertTrue(self.admin.is_active)
+
+    def test_can_deactivate_second_admin(self):
+        target = User.objects.create_user(username="boss2", password="secret123")
+        target.profile.role = Role.ADMIN
+        target.profile.save()
+        url = reverse("accounts:user_toggle", args=[target.id])
+        self.client.post(url)
+        target.refresh_from_db()
+        self.assertFalse(target.is_active)
+
+    def test_short_password_rejected(self):
+        response = self.client.post(
+            reverse("accounts:user_create"),
+            {"username": "weak", "password": "123", "role": Role.MANAGER},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(username="weak").exists())
