@@ -1,0 +1,45 @@
+{% extends "shop/base_shop.html" %}
+
+{% block title %}Users — Butterfly Shop{% endblock %}
+
+{% block content %}
+<div class="mb-4 flex items-center justify-between">
+    <div>
+        <h1 class="text-2xl font-bold">Users</h1>
+        <p class="text-slate-500 text-sm">Shop accounts and roles.</p>
+    </div>
+    <a href="{% url 'accounts:user_create' %}"
+       class="bg-slate-900 text-white px-5 py-3 rounded-xl font-bold text-sm hover:bg-indigo-600 transition-colors">
+        + New user
+    </a>
+</div>
+
+<ul class="space-y-2">
+    {% for u in users %}
+    <li class="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+            <div class="font-medium truncate">
+                {{ u.username }}
+                {% if u == request.user %}<span class="text-xs text-indigo-600 font-semibold">(you)</span>{% endif %}
+            </div>
+            <div class="text-sm text-slate-500">
+                {{ u.profile.get_role_display }}
+                {% if not u.is_active %}<span class="text-red-600 font-medium">· inactive</span>{% endif %}
+            </div>
+        </div>
+        <form method="post" action="{% url 'accounts:user_toggle' u.id %}">
+            {% csrf_token %}
+            <button type="submit"
+                    class="text-sm px-4 py-2 rounded-lg font-medium border transition-colors
+                    {% if u.is_active %}
+                        border-slate-300 text-slate-600 hover:border-red-300 hover:text-red-600
+                    {% else %}
+                        border-emerald-300 text-emerald-700 hover:bg-emerald-50
+                    {% endif %}">
+                {% if u.is_active %}Deactivate{% else %}Activate{% endif %}
+            </button>
+        </form>
+    </li>
+    {% endfor %}
+</ul>
+{% endblock %}

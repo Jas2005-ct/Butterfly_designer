@@ -1,0 +1,26 @@
+{% extends "shop/base_shop.html" %}
+
+{% block title %}Customers — Butterfly Shop{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <h1 class="text-2xl font-bold">Customers</h1>
+    <p class="text-slate-500 text-sm">Customer search and profiles go here in Phase 2.</p>
+</div>
+
+{% if customers %}
+<ul class="space-y-2">
+    {% for c in customers %}
+    <li class="bg-white rounded-xl border border-slate-200 px-4 py-3 flex justify-between items-center">
+        <span class="font-medium">{{ c.name }}</span>
+        <span class="text-slate-500 text-sm">{{ c.phone }}</span>
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<div class="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
+    <p class="text-lg font-medium">No customers yet</p>
+    <p class="text-sm mt-1">Customer CRUD arrives in Phase 2.</p>
+</div>
+{% endif %}
+{% endblock %}

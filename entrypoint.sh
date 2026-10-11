@@ -8,5 +8,8 @@ set -e
 # Collect static files (no input)
 python manage.py collectstatic --noinput
 
+# Apply database migrations
+python manage.py migrate --noinput
+
 # Exec gunicorn (replace with any additional flags you need)
 exec gunicorn core.wsgi:application --bind 0.0.0.0:${PORT:-8000}
