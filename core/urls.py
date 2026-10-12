@@ -21,5 +21,10 @@ from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path("",include("butterfly_landing_page.urls"))
+    path("", include("butterfly_landing_page.urls")),
+    path("shop/", include("accounts.urls")),
+    path("shop/", include("customers.urls")),
+    path("shop/", include("orders.urls")),
+    path("shop/", include("billing.urls")),
+    path("shop/", include("analytics.urls")),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

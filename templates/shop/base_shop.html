@@ -1,0 +1,87 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Butterfly Shop{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <meta name="theme-color" content="#1e1b4b">
+    <style>
+        .nav-safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+
+    <header class="bg-slate-900 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-40">
+        <div class="flex items-center gap-2">
+            <div class="w-9 h-9 rounded-full bg-indigo-50 flex items-center justify-center text-lg">&#129419;</div>
+            <div>
+                <div class="font-bold leading-tight">Butterfly Shop</div>
+                <div class="text-[11px] text-slate-300 uppercase tracking-widest">Manager</div>
+            </div>
+        </div>
+        <form method="post" action="{% url 'accounts:logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="text-sm bg-slate-700 hover:bg-indigo-600 px-4 py-2 rounded-lg font-medium transition-colors">
+                Logout
+            </button>
+        </form>
+    </header>
+
+    {% if messages %}
+    <div class="px-4 pt-3 space-y-2">
+        {% for message in messages %}
+        <div class="px-4 py-3 rounded-lg text-sm font-medium
+            {% if message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
+            {% elif message.tags == 'success' %}bg-emerald-50 text-emerald-700 border border-emerald-200
+            {% else %}bg-indigo-50 text-indigo-700 border border-indigo-200{% endif %}">
+            {{ message }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <main class="flex-1 w-full max-w-5xl mx-auto px-4 py-4 pb-24">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% if user.is_authenticated %}
+    <nav class="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 nav-safe-bottom z-40">
+        <div class="max-w-5xl mx-auto grid grid-cols-5 text-[11px] sm:text-xs font-medium text-slate-500">
+            <a href="{% url 'orders:board' %}"
+               class="flex flex-col items-center justify-center gap-1 py-3 hover:text-indigo-600 {% if request.resolver_match.namespace == 'orders' %}text-indigo-600{% endif %}">
+                <span class="text-lg leading-none">&#128717;&#65039;</span> Orders
+            </a>
+            <a href="{% url 'customers:list' %}"
+               class="flex flex-col items-center justify-center gap-1 py-3 hover:text-indigo-600 {% if request.resolver_match.namespace == 'customers' %}text-indigo-600{% endif %}">
+                <span class="text-lg leading-none">&#128100;</span> Customers
+            </a>
+            <a href="{% url 'billing:dues' %}"
+               class="flex flex-col items-center justify-center gap-1 py-3 hover:text-indigo-600 {% if request.resolver_match.namespace == 'billing' %}text-indigo-600{% endif %}">
+                <span class="text-lg leading-none">&#128176;</span> Dues
+            </a>
+            {% if user.profile.is_admin %}
+            <a href="{% url 'analytics:dashboard' %}"
+               class="flex flex-col items-center justify-center gap-1 py-3 hover:text-indigo-600 {% if request.resolver_match.namespace == 'analytics' %}text-indigo-600{% endif %}">
+                <span class="text-lg leading-none">&#128202;</span> Analytics
+            </a>
+            <a href="{% url 'accounts:user_list' %}"
+               class="flex flex-col items-center justify-center gap-1 py-3 hover:text-indigo-600 {% if request.resolver_match.namespace == 'accounts' %}text-indigo-600{% endif %}">
+                <span class="text-lg leading-none">&#9881;&#65039;</span> Users
+            </a>
+            {% else %}
+            <div class="flex flex-col items-center justify-center gap-1 py-3 text-slate-300">
+                <span class="text-lg leading-none">&#128101;</span> Team
+            </div>
+            <div class="flex flex-col items-center justify-center gap-1 py-3 text-slate-300">
+                <span class="text-lg leading-none">&#128202;</span> More
+            </div>
+            {% endif %}
+        </div>
+    </nav>
+    {% endif %}
+
+</body>
+</html>

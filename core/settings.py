@@ -49,7 +49,12 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'storages',
     'tailwind',
-    'butterfly_landing_page'
+    'butterfly_landing_page',
+    'accounts',
+    'customers',
+    'orders',
+    'billing',
+    'analytics',
 ]
 
 MIDDLEWARE = [
@@ -126,7 +131,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'
 
 USE_I18N = True
 
@@ -191,3 +196,21 @@ else:
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Shop manager
+LOGIN_URL = '/shop/login/'
+LOGIN_REDIRECT_URL = '/shop/'
+LOGOUT_REDIRECT_URL = '/shop/login/'
+
+# Allow login POSTs coming through HTTPS tunnels/proxies (ngrok, etc.).
+# Override with comma-separated CSRF_TRUSTED_ORIGINS env var in production.
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "CSRF_TRUSTED_ORIGINS",
+        "https://*.ngrok-free.dev,https://*.ngrok-free.app,https://*.ngrok.io",
+    ).split(",")
+    if origin.strip()
+]
+# Trust X-Forwarded-Proto so request.is_secure() is correct behind a tunnel.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
