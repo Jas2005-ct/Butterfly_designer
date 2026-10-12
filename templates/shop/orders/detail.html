@@ -1,0 +1,81 @@
+{% extends "shop/base_shop.html" %}
+
+{% block title %}{{ order.order_number }} — Butterfly Shop{% endblock %}
+
+{% block content %}
+<div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div>
+        <h1 class="text-2xl font-bold">{{ order.order_number }}</h1>
+        <p class="text-slate-500 text-sm">{{ order.customer.name }} · {{ order.customer.phone }}</p>
+    </div>
+    <div class="flex gap-2">
+        <a href="{% url 'orders:edit' order.id %}"
+           class="px-4 py-2 rounded-xl font-medium border border-slate-300 text-slate-600 hover:bg-slate-100 text-sm">
+            Edit
+        </a>
+        <a href="{% url 'orders:board' %}"
+           class="px-4 py-2 rounded-xl font-medium bg-slate-900 text-white hover:bg-indigo-600 text-sm">
+            Back to Board
+        </a>
+    </div>
+</div>
+
+<!-- Lifecycle stepper (refreshed out-of-band after HTMX advances) -->
+<div id="order-stepper">
+    {% include "shop/orders/_order_stepper.html" %}
+</div>
+
+<!-- Order Header Card -->
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+        <div>
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Service</div>
+            <div class="font-medium">{{ order.get_service_type_display }}</div>
+        </div>
+        <div>
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Total</div>
+            <div class="font-bold text-lg text-indigo-700">₹{{ order.total }}</div>
+        </div>
+        <div>
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Material Cost</div>
+            <div class="font-medium">{{ order.material_cost|default:"—" }}</div>
+        </div>
+        <div>
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Promised</div>
+            <div class="font-medium">{{ order.promised_date|date:"d M Y"|default:"—" }}</div>
+        </div>
+    </div>
+
+    {% if order.description %}
+    <div class="border-t border-slate-200 pt-4">
+        <div class="text-xs text-slate-500 uppercase tracking-wider mb-1">Description</div>
+        <div class="text-slate-700 whitespace-pre-wrap">{{ order.description }}</div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Stage Buttons (HTMX partial) -->
+<div id="stage-buttons" class="mb-5">
+    {% include "shop/orders/_stage_buttons.html" %}
+</div>
+
+<!-- Stage History Timeline (refreshed out-of-band after HTMX advances) -->
+<div class="bg-white rounded-2xl border border-slate-200 p-5" id="stage-timeline">
+    {% include "shop/orders/_stage_timeline.html" %}
+</div>
+
+<!-- Track Link -->
+<div class="mt-5 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+    <div class="font-medium text-indigo-800 mb-2">Customer Tracking Link</div>
+    <div class="flex gap-2 flex-wrap">
+        <input type="text" readonly
+               value="{{ request.scheme }}://{{ request.get_host }}{% url 'orders:track' order.track_token %}"
+               class="flex-1 min-w-0 text-sm bg-white border border-slate-300 rounded-xl px-3 py-2 font-mono text-indigo-700">
+        <button onclick="navigator.clipboard.writeText(this.previousElementSibling.value)"
+                class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
+            Copy Link
+        </button>
+    </div>
+    <p class="text-xs text-indigo-600 mt-2">Share this link with the customer — no login required.</p>
+</div>
+{% endblock %}

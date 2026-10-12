@@ -1,0 +1,31 @@
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+    {% if is_cancelled %}
+    <div class="px-4 py-3 rounded-xl bg-red-50 text-red-700 border border-red-200 font-medium">
+        ❌ This order was cancelled. Admins can reopen it from More actions below.
+    </div>
+    {% else %}
+    <div class="flex items-start overflow-x-auto pb-1" role="list" aria-label="Order progress">
+        {% for s in stepper %}
+        <div class="flex flex-col items-center flex-shrink-0 w-14" role="listitem" aria-label="{{ s.label }}: {{ s.state }}">
+            <div class="w-9 h-9 rounded-full flex items-center justify-center text-base border-2
+                {% if s.state == 'completed' %}bg-emerald-500 border-emerald-500 text-white
+                {% elif s.state == 'current' %}bg-indigo-600 border-indigo-600 text-white ring-4 ring-indigo-200
+                {% else %}bg-slate-100 border-slate-200 text-slate-400{% endif %}">
+                {% if s.state == 'completed' %}✓{% else %}{{ s.emoji }}{% endif %}
+            </div>
+            <div class="text-[10px] mt-1 text-center leading-tight
+                {% if s.state == 'current' %}font-bold text-indigo-700
+                {% elif s.state == 'todo' %}text-slate-400{% endif %}">{{ s.label }}</div>
+        </div>
+        {% if not forloop.last %}
+        <div class="flex-1 h-0.5 mt-[18px] min-w-[8px]
+            {% if s.state == 'completed' %}bg-emerald-400{% else %}bg-slate-200{% endif %}"></div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    <p class="mt-3 text-sm text-slate-600">
+        Now: <strong class="text-indigo-700">{{ order.get_stage_display }}</strong>
+        · day {{ days_in_stage }} in this stage
+    </p>
+    {% endif %}
+</div>
