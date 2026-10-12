@@ -5,11 +5,67 @@
 {% block content %}
 <div class="mb-4">
     <h1 class="text-2xl font-bold">Dues</h1>
-    <p class="text-slate-500 text-sm">Pending balances go here in Phase 3.</p>
+    <p class="text-slate-500 text-sm">Open orders with pending balances.</p>
 </div>
 
-<div class="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
-    <p class="text-lg font-medium">Coming in Phase 3</p>
-    <p class="text-sm mt-1">Advance / balance payments and the dues list.</p>
+<!-- Total outstanding -->
+<div class="bg-red-50 border border-red-200 rounded-2xl p-5 mb-5 flex items-center justify-between">
+    <div>
+        <div class="text-xs text-red-600 uppercase tracking-wider font-medium">Total outstanding</div>
+        <div class="text-2xl font-bold text-red-700">₹{{ total_outstanding|floatformat:2 }}</div>
+    </div>
+    <div class="text-3xl">💰</div>
 </div>
+
+<!-- Sort -->
+<div class="flex flex-wrap gap-2 mb-4" role="tablist" aria-label="Sort dues">
+    <a href="?sort=promised"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if sort == 'promised' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        By promised date
+    </a>
+    <a href="?sort=balance"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if sort == 'balance' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        Highest due
+    </a>
+    <a href="?sort=customer"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if sort == 'customer' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        By customer
+    </a>
+    <a href="?sort=oldest"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if sort == 'oldest' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        Oldest first
+    </a>
+</div>
+
+{% if orders %}
+<ul class="space-y-2">
+    {% for order in orders %}
+    <li class="bg-white rounded-xl border border-slate-200 p-4">
+        <a href="{% url 'orders:detail' order.id %}" class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+                <div class="font-medium truncate">{{ order.order_number }} · {{ order.customer.name }}</div>
+                <div class="text-sm text-slate-500">
+                    {{ order.customer.phone }}
+                    {% if order.promised_date %} · 📅 {{ order.promised_date|date:"d M Y" }}{% endif %}
+                    · {{ order.get_stage_display }}
+                </div>
+            </div>
+            <div class="text-right flex-shrink-0">
+                <div class="font-bold text-lg text-red-700">₹{{ order.balance|floatformat:2 }}</div>
+                <div class="text-xs text-slate-500">of ₹{{ order.total|floatformat:2 }} (paid ₹{{ order.paid|floatformat:2 }})</div>
+            </div>
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<div class="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
+    <p class="text-lg font-medium">🎉 No dues pending</p>
+    <p class="text-sm mt-1">Every open order is fully paid.</p>
+</div>
+{% endif %}
 {% endblock %}

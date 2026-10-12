@@ -75,13 +75,16 @@
                         </span>
                         {% endif %}
                     </div>
-                    {% if order.is_overdue or order.is_stuck %}
+                    {% if order.is_overdue or order.is_stuck or order.balance > 0 %}
                     <div class="mt-2 flex flex-wrap gap-1">
                         {% if order.is_overdue %}
                         <span class="px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[11px] font-medium">🔴 Overdue</span>
                         {% endif %}
                         {% if order.is_stuck %}
                         <span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-medium">🟡 {{ order.days_in_stage }}d stuck</span>
+                        {% endif %}
+                        {% if order.balance > 0 %}
+                        <span class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-medium">💰 ₹{{ order.balance|floatformat:2 }} due</span>
                         {% endif %}
                     </div>
                     {% endif %}

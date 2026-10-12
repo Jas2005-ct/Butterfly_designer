@@ -34,7 +34,7 @@
         </div>
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Total</div>
-            <div class="font-bold text-lg text-indigo-700">₹{{ order.total }}</div>
+            <div class="font-bold text-lg text-indigo-700">₹{{ order.total|floatformat:2 }}</div>
         </div>
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Material Cost</div>
@@ -62,6 +62,11 @@
 <!-- Stage History Timeline (refreshed out-of-band after HTMX advances) -->
 <div class="bg-white rounded-2xl border border-slate-200 p-5" id="stage-timeline">
     {% include "shop/orders/_stage_timeline.html" %}
+</div>
+
+<!-- Payments (HTMX partial) -->
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mt-5" id="order-payments">
+    {% include "shop/billing/_payments.html" %}
 </div>
 
 <!-- Track Link -->

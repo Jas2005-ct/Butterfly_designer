@@ -55,7 +55,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <div class="font-medium">{{ order.order_number }}</div>
-                    <div class="text-sm text-slate-500">{{ order.get_service_type_display }} · ₹{{ order.total }}</div>
+                    <div class="text-sm text-slate-500">{{ order.get_service_type_display }} · ₹{{ order.total|floatformat:2 }}</div>
                 </div>
                 <div class="text-right">
                     <span class="inline-block px-2 py-1 rounded-full text-xs font-medium
