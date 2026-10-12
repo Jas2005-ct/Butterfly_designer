@@ -51,6 +51,31 @@ class RevenueTests(TestCase):
         self.assertEqual(len(series), 6)
         self.assertEqual(sum(row["total"] for row in series), Decimal("250"))
 
+    def test_revenue_by_month_splits_across_boundary(self):
+        # Payments (not orders) drive revenue: backdate two payments into
+        # adjacent months at IST-safe midday hours.
+        from datetime import datetime, time
+
+        from billing.models import Payment
+
+        today = timezone.localdate()
+        first_this = today.replace(day=1)
+        first_prev = (first_this - timezone.timedelta(days=1)).replace(day=1)
+
+        p1 = record_payment(self.order, "100", PaymentMode.CASH, self.user)
+        p2 = record_payment(self.order, "50", PaymentMode.CASH, self.user)
+        Payment.objects.filter(id=p1.id).update(
+            created_at=timezone.make_aware(datetime.combine(first_prev, time(12, 0)))
+        )
+        Payment.objects.filter(id=p2.id).update(
+            created_at=timezone.make_aware(datetime.combine(first_this, time(12, 0)))
+        )
+
+        series = services.revenue_by_month(months=2)
+        got = {row["label"]: row["total"] for row in series}
+        self.assertEqual(got[f"{first_prev.year}-{first_prev.month:02d}"], Decimal("100"))
+        self.assertEqual(got[f"{first_this.year}-{first_this.month:02d}"], Decimal("50"))
+
     def test_bar_width(self):
         self.assertEqual(services.bar_width(Decimal("50"), Decimal("100")), 50)
         self.assertEqual(services.bar_width(Decimal("0"), Decimal("0")), 0)
@@ -130,6 +155,24 @@ class StuckOrdersTests(TestCase):
         stuck = services.stuck_orders()
         self.assertEqual([o.id for o in stuck], [order.id])
         self.assertGreaterEqual(stuck[0].stuck_days, 5)
+
+    def test_just_under_threshold_not_stuck(self):
+        # Rule is strictly older-than-3-days. Exact equality is untestable
+        # (the clock moves between backdating and the query), so assert a
+        # minute inside the window is not stuck.
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        Order.objects.filter(id=order.id).update(
+            created_at=timezone.now() - timezone.timedelta(days=3) + timezone.timedelta(minutes=1)
+        )
+        self.assertEqual(services.stuck_orders(), [])
+
+    def test_just_over_threshold_is_stuck(self):
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        Order.objects.filter(id=order.id).update(
+            created_at=timezone.now() - timezone.timedelta(days=3, minutes=1)
+        )
+        stuck = services.stuck_orders()
+        self.assertEqual([o.id for o in stuck], [order.id])
 
 
 class TopCustomersTests(TestCase):

@@ -96,6 +96,11 @@ def revenue_by_week(weeks=8):
 def revenue_by_month(months=6):
     """Per-month revenue for the trailing N months, oldest first."""
     today = timezone.localdate()
+    # Generous 31-day window, deliberately not exact: the earliest needed
+    # date (first of the oldest month) is at most 31*(months-1)+30 days back,
+    # always inside 31*months; extra older days group under keys the series
+    # never reads. An "exact" UTC-date cutoff would reintroduce the IST
+    # late-night misdating this module was written to avoid.
     by_day = _payments_in_window(timezone.now() - timedelta(days=31 * months))
     by_month = {}
     for day, total in by_day.items():
