@@ -1,0 +1,28 @@
+<h3 class="font-bold mb-4">Stage History</h3>
+<div class="space-y-4">
+    {% for h in history %}
+    <div class="flex gap-3">
+        <div class="flex-shrink-0 rounded-full border-2 flex items-center justify-center
+            {% if h.to_stage == order.stage %}border-indigo-500 bg-indigo-50 text-indigo-600{% else %}border-slate-200 bg-slate-50 text-slate-500{% endif %}"
+             style="width: 32px; height: 32px;">
+            {% if h.to_stage == "measurement" %}📏
+            {% elif h.to_stage == "cutting" %}✂️
+            {% elif h.to_stage == "stitching" %}🧵
+            {% elif h.to_stage == "fitting" %}👗
+            {% elif h.to_stage == "ready" %}✅
+            {% elif h.to_stage == "delivered" %}📦
+            {% elif h.to_stage == "cancelled" %}❌
+            {% else %}•{% endif %}
+        </div>
+        <div class="flex-1 pt-1">
+            <div class="font-medium">{{ h.get_to_stage_display }}</div>
+            <div class="text-xs text-slate-500">
+                {{ h.changed_at|date:"d M Y, H:i" }} · by {{ h.changed_by.username|default:"system" }}
+                {% if h.note %} · {{ h.note }}{% endif %}
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div class="text-center text-slate-400 py-4">No history yet</div>
+    {% endfor %}
+</div>

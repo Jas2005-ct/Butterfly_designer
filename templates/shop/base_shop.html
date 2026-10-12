@@ -14,7 +14,7 @@
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
 
-    <header class="bg-slate-900 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-40">
+    <header class="bg-slate-900 text-white px-4 sm:px-6 lg:px-10 py-3 flex items-center justify-between sticky top-0 z-40">
         <div class="flex items-center gap-2">
             <div class="w-9 h-9 rounded-full bg-indigo-50 flex items-center justify-center text-lg">&#129419;</div>
             <div>
@@ -31,7 +31,7 @@
     </header>
 
     {% if messages %}
-    <div class="px-4 pt-3 space-y-2">
+    <div class="px-4 sm:px-6 lg:px-10 pt-3 space-y-2">
         {% for message in messages %}
         <div class="px-4 py-3 rounded-lg text-sm font-medium
             {% if message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
@@ -43,13 +43,16 @@
     </div>
     {% endif %}
 
-    <main class="flex-1 w-full max-w-5xl mx-auto px-4 py-4 pb-24">
+    {% comment %}Full-bleed layout: no max-width cap. Tablet portrait/landscape
+    use px-4/sm:px-6; desktop/laptop stretch edge-to-edge with lg:px-10.
+    Pages that need narrow measure (login, track, forms) set their own max-width.{% endcomment %}
+    <main class="flex-1 w-full px-4 py-4 pb-28 sm:px-6 lg:px-10">
         {% block content %}{% endblock %}
     </main>
 
     {% if user.is_authenticated %}
     <nav class="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 nav-safe-bottom z-40">
-        <div class="max-w-5xl mx-auto grid grid-cols-5 text-[11px] sm:text-xs font-medium text-slate-500">
+        <div class="grid grid-cols-5 text-[11px] sm:text-xs lg:text-sm font-medium text-slate-500">
             <a href="{% url 'orders:board' %}"
                class="flex flex-col items-center justify-center gap-1 py-3 hover:text-indigo-600 {% if request.resolver_match.namespace == 'orders' %}text-indigo-600{% endif %}">
                 <span class="text-lg leading-none">&#128717;&#65039;</span> Orders

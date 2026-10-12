@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ order.order_number }} — Track Order</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <meta name="theme-color" content="#1e1b4b">
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+
+    <header class="bg-slate-900 text-white px-4 py-4">
+        <div class="max-w-md mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <div class="w-9 h-9 rounded-full bg-indigo-50 flex items-center justify-center text-lg">🦋</div>
+                <div>
+                    <div class="font-bold">Butterfly Shop</div>
+                    <div class="text-[11px] text-slate-300 uppercase tracking-widest">Order Tracking</div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-md mx-auto w-full px-4 py-6">
+        <!-- Order Header -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 shadow-sm">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <h1 class="text-xl font-bold">{{ order.order_number }}</h1>
+                    <p class="text-sm text-slate-500">{{ order.customer.name }} · {{ order.customer.phone }}</p>
+                </div>
+                <div class="text-right">
+                    <div class="inline-block px-3 py-1 rounded-full text-sm font-medium
+                        {% if order.stage == 'measurement' %}bg-blue-50 text-blue-700
+                        {% elif order.stage == 'cutting' %}bg-orange-50 text-orange-700
+                        {% elif order.stage == 'stitching' %}bg-purple-50 text-purple-700
+                        {% elif order.stage == 'fitting' %}bg-teal-50 text-teal-700
+                        {% elif order.stage == 'ready' %}bg-emerald-50 text-emerald-700
+                        {% elif order.stage == 'delivered' %}bg-indigo-50 text-indigo-700
+                        {% elif order.stage == 'cancelled' %}bg-red-50 text-red-700
+                        {% else %}bg-slate-50 text-slate-700{% endif %}">
+                        {{ order.get_stage_display }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                    <div class="text-slate-500 uppercase tracking-wider text-xs">Service</div>
+                    <div class="font-medium">{{ order.get_service_type_display }}</div>
+                </div>
+                <div>
+                    <div class="text-slate-500 uppercase tracking-wider text-xs">Promised</div>
+                    <div class="font-medium">{{ order.promised_date|date:"d M Y"|default:"—" }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Milestone Chart -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 shadow-sm">
+            <h2 class="font-bold mb-5">Progress</h2>
+
+            <div class="relative">
+                <!-- Vertical line -->
+                <div class="absolute left-6 top-0 bottom-0 w-0.5 bg-slate-200"></div>
+
+                {% for m in milestones %}
+                <div class="relative pl-16 mb-5 {% if forloop.last %}mb-0{% endif %}">
+                    <!-- Dot -->
+                    <div class="absolute left-2 top-1 w-10 h-10 rounded-full flex items-center justify-center text-lg border-3
+                        {% if m.current %}border-indigo-500 bg-indigo-50 ring-4 ring-indigo-100
+                        {% elif m.completed %}border-emerald-500 bg-emerald-50
+                        {% else %}border-slate-200 bg-slate-50{% endif %}">
+                        {% if m.stage == "measurement" %}📏
+                        {% elif m.stage == "cutting" %}✂️
+                        {% elif m.stage == "stitching" %}🧵
+                        {% elif m.stage == "fitting" %}👗
+                        {% elif m.stage == "ready" %}✅
+                        {% elif m.stage == "delivered" %}📦
+                        {% elif m.stage == "cancelled" %}❌
+                        {% else %}•{% endif %}
+                    </div>
+
+                    <!-- Content -->
+                    <div class="{% if not m.completed and not m.current %}opacity-50{% endif %}">
+                        <div class="font-medium text-slate-900">{{ m.label }}</div>
+                        {% if m.timestamp %}
+                        <div class="text-sm text-slate-500 mt-0.5">{{ m.timestamp|date:"d M Y, H:i" }}</div>
+                        {% elif m.current %}
+                        <div class="text-sm text-indigo-600 mt-0.5 font-medium">Current</div>
+                        {% elif m.completed %}
+                        <div class="text-sm text-emerald-600 mt-0.5">Completed</div>
+                        {% else %}
+                        <div class="text-sm text-slate-400 mt-0.5">Pending</div>
+                        {% endif %}
+                        {% if m.note %}
+                        <div class="text-xs text-slate-400 mt-1 italic">"{{ m.note }}"</div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Details -->
+        {% if order.description %}
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 shadow-sm">
+            <h3 class="font-bold mb-2">Description</h3>
+            <p class="text-slate-700 whitespace-pre-wrap">{{ order.description }}</p>
+        </div>
+        {% endif %}
+
+        <!-- Footer -->
+        <div class="text-center text-sm text-slate-500 border-t border-slate-200 pt-4">
+            <p>Butterfly Designer — Premium Women's Tailoring</p>
+            <p class="mt-1">Questions? Call us or visit the shop.</p>
+        </div>
+    </main>
+</body>
+</html>

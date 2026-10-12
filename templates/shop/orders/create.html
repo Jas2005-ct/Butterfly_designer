@@ -1,0 +1,115 @@
+{% extends "shop/base_shop.html" %}
+
+{% block title %}New Order — Butterfly Shop{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <h1 class="text-2xl font-bold">New Order</h1>
+    <p class="text-slate-500 text-sm">Create a new customer order.</p>
+</div>
+
+<form method="post" class="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 space-y-5 max-w-2xl lg:max-w-4xl">
+    {% csrf_token %}
+
+    <!-- Customer Selection -->
+    <div>
+        <label class="block text-sm font-medium text-slate-700 mb-2">Customer</label>
+        <div class="space-y-2 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
+            <label class="block border border-slate-300 rounded-xl p-3 cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
+                <input type="radio" name="customer" value="" class="sr-only" checked>
+                <div class="font-medium">Create new customer</div>
+            </label>
+            {% for c in customers %}
+            <label class="block border border-slate-300 rounded-xl p-3 cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
+                <input type="radio" name="customer" value="{{ c.id }}" class="sr-only">
+                <div class="font-medium">{{ c.name }}</div>
+                <div class="text-sm text-slate-500">{{ c.phone }}</div>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- New Customer Fields (shown when "Create new" is selected) -->
+    <div id="new-customer-fields" class="space-y-4 hidden">
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label for="customer_name" class="block text-sm font-medium text-slate-700 mb-1">Name *</label>
+                <input type="text" name="customer_name" id="customer_name"
+                       class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+            </div>
+            <div>
+                <label for="customer_phone" class="block text-sm font-medium text-slate-700 mb-1">Phone *</label>
+                <input type="tel" name="customer_phone" id="customer_phone"
+                       class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+            </div>
+        </div>
+    </div>
+
+    <script>
+    document.querySelectorAll('input[name="customer"]').forEach(r => {
+        r.addEventListener('change', () => {
+            document.getElementById('new-customer-fields').classList.toggle('hidden', r.value !== '');
+        });
+    });
+    </script>
+
+    <!-- Service Type -->
+    <div>
+        <label class="block text-sm font-medium text-slate-700 mb-2">Service Type</label>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {% for value, label in service_choices %}
+            <label class="border border-slate-300 rounded-xl p-3 text-center cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
+                <input type="radio" name="service_type" value="{{ value }}" class="sr-only" {% if value == 'other' %}checked{% endif %}>
+                <span class="font-medium text-sm">{{ label }}</span>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Description -->
+    <div>
+        <label for="description" class="block text-sm font-medium text-slate-700 mb-1">Description</label>
+        <textarea name="description" id="description" rows="3"
+                  class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"></textarea>
+    </div>
+
+    <!-- Financial -->
+    <div class="grid grid-cols-2 gap-4">
+        <div>
+            <label for="total" class="block text-sm font-medium text-slate-700 mb-1">Total (₹) *</label>
+            <input type="number" name="total" id="total" step="0.01" min="0" value="0" required
+                   class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+        </div>
+        <div>
+            <label for="material_cost" class="block text-sm font-medium text-slate-700 mb-1">Material Cost (₹)</label>
+            <input type="number" name="material_cost" id="material_cost" step="0.01" min="0"
+                   class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+        </div>
+    </div>
+
+    <!-- Promised Date -->
+    <div>
+        <label for="promised_date" class="block text-sm font-medium text-slate-700 mb-1">Promised Delivery Date</label>
+        <input type="date" name="promised_date" id="promised_date"
+               class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+    </div>
+
+    <!-- Notes -->
+    <div>
+        <label for="notes" class="block text-sm font-medium text-slate-700 mb-1">Internal Notes</label>
+        <textarea name="notes" id="notes" rows="2"
+                  class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"></textarea>
+    </div>
+
+    <div class="flex gap-3 pt-2">
+        <button type="submit"
+                class="flex-1 bg-slate-900 text-white font-bold px-4 py-3.5 rounded-xl hover:bg-indigo-600 transition-colors">
+            Create Order
+        </button>
+        <a href="{% url 'orders:board' %}"
+           class="px-6 py-3.5 rounded-xl font-medium border border-slate-300 text-slate-600 hover:bg-slate-100">
+            Cancel
+        </a>
+    </div>
+</form>
+{% endblock %}

@@ -1,15 +1,99 @@
 {% extends "shop/base_shop.html" %}
+{% load shop_extras %}
 
-{% block title %}Orders — Butterfly Shop{% endblock %}
+{% block title %}Order Board — Butterfly Shop{% endblock %}
 
 {% block content %}
-<div class="mb-4">
-    <h1 class="text-2xl font-bold">Orders</h1>
-    <p class="text-slate-500 text-sm">Order board goes here in Phase 2.</p>
+<div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div>
+        <h1 class="text-2xl font-bold">Order Board</h1>
+        <p class="text-slate-500 text-sm">{{ total_orders }} order{{ total_orders|pluralize }} · {{ tab|capfirst }}</p>
+    </div>
+    <div class="flex gap-2 w-full sm:w-auto">
+        <form method="get" class="flex-1 sm:w-64">
+            <input type="hidden" name="tab" value="{{ tab }}">
+            <input type="text" name="q" value="{{ query }}" placeholder="Search order #, name, phone…"
+                   class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+        </form>
+        <a href="{% url 'orders:create' %}"
+           class="bg-slate-900 text-white px-5 py-3 rounded-xl font-bold text-sm hover:bg-indigo-600 transition-colors whitespace-nowrap">
+            + New Order
+        </a>
+    </div>
 </div>
 
-<div class="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
-    <p class="text-lg font-medium">Coming in Phase 2</p>
-    <p class="text-sm mt-1">Kanban board, new order form, stage updates and customer tracking.</p>
+<!-- Tabs: Active work by default, finished orders one tap away -->
+<div class="flex gap-2 mb-4" role="tablist" aria-label="Order groups">
+    <a href="?tab=active{% if query %}&q={{ query }}{% endif %}" role="tab"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if tab == 'active' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        Active ({{ counts.active }})
+    </a>
+    <a href="?tab=delivered{% if query %}&q={{ query }}{% endif %}" role="tab"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if tab == 'delivered' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        Delivered ({{ counts.delivered }})
+    </a>
+    <a href="?tab=cancelled{% if query %}&q={{ query }}{% endif %}" role="tab"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if tab == 'cancelled' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        Cancelled ({{ counts.cancelled }})
+    </a>
+</div>
+
+<!-- Kanban Board: snap-scrolls per column on touch (portrait tablet),
+     shows more columns side-by-side as the screen widens (landscape/desktop). -->
+<div class="overflow-x-auto pb-4 snap-x scroll-smooth">
+    <div class="flex gap-3 min-w-max" style="min-width: 100%;">
+        {% for stage in stage_order %}
+        <div class="w-72 lg:w-80 flex-shrink-0 snap-start bg-slate-50 rounded-2xl border border-slate-200 flex flex-col">
+            <!-- Stage Header -->
+            <div class="px-4 py-3 border-b border-slate-200 bg-white rounded-t-2xl flex items-center justify-between sticky top-0">
+                <h3 class="font-bold text-sm uppercase tracking-wider text-slate-600">
+                    {{ stage|capfirst }}
+                </h3>
+                <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                    {{ columns|get_item:stage|length }}
+                </span>
+            </div>
+
+            <!-- Order Cards -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-3 min-h-[400px]">
+                {% for order in columns|get_item:stage %}
+                <a href="{% url 'orders:detail' order.id %}"
+                   class="block bg-white rounded-xl border border-slate-200 p-3 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all">
+                    <div class="font-medium text-slate-900">{{ order.order_number }}</div>
+                    <div class="text-sm text-slate-500 truncate">{{ order.customer.name }}</div>
+                    <div class="text-xs text-slate-400">{{ order.customer.phone }}</div>
+                    <div class="mt-2 flex items-center justify-between text-xs">
+                        <span class="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700">
+                            {{ order.get_service_type_display }}
+                        </span>
+                        {% if order.promised_date %}
+                        <span class="text-slate-500">
+                            📅 {{ order.promised_date|date:"d M" }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    {% if order.is_overdue or order.is_stuck %}
+                    <div class="mt-2 flex flex-wrap gap-1">
+                        {% if order.is_overdue %}
+                        <span class="px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[11px] font-medium">🔴 Overdue</span>
+                        {% endif %}
+                        {% if order.is_stuck %}
+                        <span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-medium">🟡 {{ order.days_in_stage }}d stuck</span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </a>
+                {% empty %}
+                <div class="text-center text-slate-300 py-8 text-sm">
+                    <p>No orders</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
 </div>
 {% endblock %}

@@ -1,0 +1,135 @@
+<div class="bg-white rounded-2xl border border-slate-200 p-5">
+    <h3 class="font-bold mb-4">Current Stage: <span class="text-indigo-600">{{ order.get_stage_display }}</span></h3>
+
+    {% if error %}
+    <div class="mb-4 px-4 py-3 rounded-lg bg-red-50 text-red-700 text-sm border border-red-200">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    {% if success %}
+    <div class="mb-4 px-4 py-3 rounded-lg bg-emerald-50 text-emerald-700 text-sm border border-emerald-200">
+        {{ success }}
+    </div>
+    {% endif %}
+
+    {% if primary_next %}
+    <!-- The one happy-path action: big, unambiguous, tablet-friendly -->
+    <form hx-post="{% url 'orders:advance_stage' order.id %}"
+          hx-target="#stage-buttons"
+          hx-swap="innerHTML">
+        {% csrf_token %}
+        <input type="hidden" name="to_stage" value="{{ primary_next.0 }}">
+        <button type="submit"
+                class="w-full text-lg font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-4 rounded-xl transition-colors">
+            ✓ Advance to {{ primary_next.1 }}
+        </button>
+    </form>
+    {% elif order.stage == "delivered" %}
+    <div class="px-4 py-3 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+        📦 Delivered — this order is complete.
+    </div>
+    {% elif is_cancelled %}
+    <div class="px-4 py-3 rounded-xl bg-red-50 text-red-700 border border-red-200 font-medium">
+        ❌ Cancelled — reopen it from More actions below if needed.
+    </div>
+    {% endif %}
+
+    <details class="mt-4 border-t border-slate-200 pt-3">
+        <summary class="cursor-pointer text-sm font-medium text-slate-600 hover:text-indigo-600 py-2">
+            More actions (go back · cancel{% if user_is_admin %} · admin{% endif %})
+        </summary>
+        <div class="mt-2 space-y-4">
+            {% if is_cancelled %}
+            <p class="text-xs text-slate-500">Reopen a cancelled order (a reason is required and recorded).</p>
+            {% endif %}
+
+            {% for code, label in backward_options %}
+            <form hx-post="{% url 'orders:advance_stage' order.id %}"
+                  hx-target="#stage-buttons"
+                  hx-swap="innerHTML"
+                  class="bg-slate-50 rounded-xl border border-slate-200 p-3">
+                {% csrf_token %}
+                <input type="hidden" name="to_stage" value="{{ code }}">
+                <label class="block text-sm font-medium text-slate-700 mb-1">
+                    {% if is_cancelled %}Reopen as {{ label }}{% else %}Move back to {{ label }}{% endif %} — reason required
+                </label>
+                <textarea name="note" required rows="2" placeholder="e.g. customer asked for alteration"
+                          class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none text-sm"></textarea>
+                <button type="submit"
+                        class="mt-2 w-full px-4 py-2.5 rounded-xl font-medium border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors">
+                    ↩ {% if is_cancelled %}Reopen{% else %}Move back to {{ label }}{% endif %}
+                </button>
+            </form>
+            {% endfor %}
+
+            {% if show_cancel %}
+            <form hx-post="{% url 'orders:advance_stage' order.id %}"
+                  hx-target="#stage-buttons"
+                  hx-swap="innerHTML"
+                  class="bg-red-50/50 rounded-xl border border-red-200 p-3">
+                {% csrf_token %}
+                <input type="hidden" name="to_stage" value="cancelled">
+                <label class="block text-sm font-medium text-red-800 mb-1">Cancel this order — reason required</label>
+                <textarea name="note" required rows="2" placeholder="e.g. customer cancelled, duplicate order"
+                          class="w-full px-3 py-2 rounded-lg border border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-200 outline-none text-sm"></textarea>
+                <button type="submit"
+                        class="mt-2 w-full px-4 py-2.5 rounded-xl font-medium border border-red-300 text-red-800 bg-red-50 hover:bg-red-100 transition-colors">
+                    Cancel this order
+                </button>
+            </form>
+            {% endif %}
+
+            {% if user_is_admin %}
+            <div class="border-t border-slate-200 pt-3">
+                <div class="text-xs font-medium text-slate-500 mb-1">Admin force-move (reason required, recorded in history)</div>
+                <div id="force-error" class="hidden mb-2 px-3 py-2 rounded-lg bg-red-50 text-red-700 text-xs border border-red-200">
+                    Please enter a reason first.
+                </div>
+                <textarea id="admin-force-note" rows="2" placeholder="Reason for forced move (required)"
+                          class="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none text-sm"></textarea>
+                <div class="flex flex-wrap gap-2 mt-2">
+                    {% for code, label in all_stage_choices %}
+                    {% if code != order.stage and code not in valid_next_stage_codes %}
+                    <form hx-post="{% url 'orders:advance_stage' order.id %}"
+                          hx-target="#stage-buttons"
+                          hx-swap="innerHTML"
+                          class="inline-block"
+                          onsubmit="return copyAdminNote(this)">
+                        {% csrf_token %}
+                        <input type="hidden" name="to_stage" value="{{ code }}">
+                        <input type="hidden" name="force" value="true">
+                        <input type="hidden" name="note" value="">
+                        <button type="submit"
+                                class="px-4 py-2.5 rounded-xl font-medium border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 transition-colors">
+                            ⚡ {{ label }}
+                        </button>
+                    </form>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if not backward_options and not show_cancel and not user_is_admin %}
+            <p class="text-sm text-slate-400">No other actions available.</p>
+            {% endif %}
+        </div>
+    </details>
+</div>
+
+<script>
+function copyAdminNote(form) {
+    var field = document.getElementById('admin-force-note');
+    var err = document.getElementById('force-error');
+    var note = field ? field.value.trim() : '';
+    if (!note) {
+        if (err) err.classList.remove('hidden');
+        if (field) field.focus();
+        return false;
+    }
+    if (err) err.classList.add('hidden');
+    form.querySelector('input[name="note"]').value = note;
+    return true;
+}
+</script>
