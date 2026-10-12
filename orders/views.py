@@ -11,6 +11,7 @@ from django.views.decorators.http import require_http_methods
 from .models import Order, OrderStage, OrderStageHistory, ServiceType
 from .services import STAGE_EMOJI, STAGE_ORDER, VALID_NEXT_STAGES, advance_stage, stage_labels_for
 from billing.services import annotate_balances, payment_section_context
+from butterfly_landing_page.models import About
 from customers.models import Customer
 
 
@@ -264,7 +265,7 @@ def order_detail(request, order_id):
         Order.objects.select_related("customer", "created_by").prefetch_related("items", "stage_history__changed_by"),
         id=order_id,
     )
-    context = {"order": order}
+    context = {"order": order, "shop": About.objects.first()}
     context.update(_detail_status_context(order, request.user))
     context.update(payment_section_context(order))
     return render(request, "shop/orders/detail.html", context)

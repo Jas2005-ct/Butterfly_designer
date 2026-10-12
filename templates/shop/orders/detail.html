@@ -3,16 +3,20 @@
 {% block title %}{{ order.order_number }} — Butterfly Shop{% endblock %}
 
 {% block content %}
-<div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+<div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 print:hidden">
     <div>
         <h1 class="text-2xl font-bold">{{ order.order_number }}</h1>
         <p class="text-slate-500 text-sm">{{ order.customer.name }} · {{ order.customer.phone }}</p>
     </div>
-    <div class="flex gap-2">
+    <div class="flex gap-2 print:hidden">
         <a href="{% url 'orders:edit' order.id %}"
            class="px-4 py-2 rounded-xl font-medium border border-slate-300 text-slate-600 hover:bg-slate-100 text-sm">
             Edit
         </a>
+        <button onclick="window.print()"
+           class="px-4 py-2 rounded-xl font-medium border border-slate-300 text-slate-600 hover:bg-slate-100 text-sm">
+            🖨 Print receipt
+        </button>
         <a href="{% url 'orders:board' %}"
            class="px-4 py-2 rounded-xl font-medium bg-slate-900 text-white hover:bg-indigo-600 text-sm">
             Back to Board
@@ -21,12 +25,12 @@
 </div>
 
 <!-- Lifecycle stepper (refreshed out-of-band after HTMX advances) -->
-<div id="order-stepper">
+<div id="order-stepper" class="print:hidden">
     {% include "shop/orders/_order_stepper.html" %}
 </div>
 
 <!-- Order Header Card -->
-<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 print:hidden">
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Service</div>
@@ -55,22 +59,57 @@
 </div>
 
 <!-- Stage Buttons (HTMX partial) -->
-<div id="stage-buttons" class="mb-5">
+<div id="stage-buttons" class="mb-5 print:hidden">
     {% include "shop/orders/_stage_buttons.html" %}
 </div>
 
 <!-- Stage History Timeline (refreshed out-of-band after HTMX advances) -->
-<div class="bg-white rounded-2xl border border-slate-200 p-5" id="stage-timeline">
+<div class="bg-white rounded-2xl border border-slate-200 p-5 print:hidden" id="stage-timeline">
     {% include "shop/orders/_stage_timeline.html" %}
 </div>
 
 <!-- Payments (HTMX partial) -->
-<div class="bg-white rounded-2xl border border-slate-200 p-5 mt-5" id="order-payments">
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mt-5 print:hidden" id="order-payments">
     {% include "shop/billing/_payments.html" %}
 </div>
 
+<!-- Print-only receipt -->
+<div id="order-receipt" class="hidden print:block bg-white">
+    <div class="text-center border-b border-slate-300 pb-3 mb-3">
+        <h2 class="text-xl font-bold">🦋 {{ shop.name|default:"Butterfly Designer" }}</h2>
+        {% if shop %}
+        <p class="text-xs text-slate-600">{{ shop.address }} · {{ shop.phone }}{% if shop.email %} · {{ shop.email }}{% endif %}</p>
+        {% endif %}
+    </div>
+    <h3 class="font-bold mb-2">Order Receipt — {{ order.order_number }}</h3>
+    <div class="text-sm space-y-1 mb-3">
+        <p><strong>Customer:</strong> {{ order.customer.name }} · {{ order.customer.phone }}</p>
+        <p><strong>Date:</strong> {{ order.created_at|date:"d M Y" }} · <strong>Service:</strong> {{ order.get_service_type_display }}</p>
+        {% if order.description %}<p><strong>Work:</strong> {{ order.description }}</p>{% endif %}
+        <p><strong>Stage:</strong> {{ order.get_stage_display }} · <strong>Promised:</strong> {{ order.promised_date|date:"d M Y"|default:"—" }}</p>
+    </div>
+    <table class="w-full text-sm mb-3">
+        <tr class="border-b border-slate-200">
+            <td class="py-1.5 font-bold">Total</td>
+            <td class="py-1.5 text-right font-bold">₹{{ order.total|floatformat:2 }}</td>
+        </tr>
+        {% for p in payments %}
+        <tr class="border-b border-slate-100">
+            <td class="py-1">Paid {{ p.created_at|date:"d M" }} ({{ p.get_mode_display }})</td>
+            <td class="py-1 text-right">₹{{ p.amount|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+        <tr>
+            <td class="py-1.5 font-bold">Balance due</td>
+            <td class="py-1.5 text-right font-bold">₹{{ balance|floatformat:2 }}</td>
+        </tr>
+    </table>
+    <p class="text-xs text-slate-600">Track this order: {{ request.scheme }}://{{ request.get_host }}{% url 'orders:track' order.track_token %}</p>
+    <p class="text-center text-xs text-slate-500 mt-3">Thank you for choosing {{ shop.name|default:"Butterfly Designer" }}!</p>
+</div>
+
 <!-- Track Link -->
-<div class="mt-5 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
+<div class="mt-5 p-4 bg-indigo-50 rounded-2xl border border-indigo-100 print:hidden">
     <div class="font-medium text-indigo-800 mb-2">Customer Tracking Link</div>
     <div class="flex gap-2 flex-wrap">
         <input type="text" readonly
