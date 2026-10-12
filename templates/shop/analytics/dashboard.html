@@ -3,13 +3,169 @@
 {% block title %}Analytics — Butterfly Shop{% endblock %}
 
 {% block content %}
-<div class="mb-4">
+<div class="mb-5">
     <h1 class="text-2xl font-bold">Analytics</h1>
-    <p class="text-slate-500 text-sm">Revenue and order insights go here in Phase 4.</p>
+    <p class="text-slate-500 text-sm">Shop performance at a glance. Revenue = money received; profit = booked totals − material.</p>
 </div>
 
-<div class="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
-    <p class="text-lg font-medium">Coming in Phase 4</p>
-    <p class="text-sm mt-1">Revenue, profit, service mix, stuck orders and top customers.</p>
+<!-- KPI cards -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="text-[11px] text-slate-500 uppercase tracking-wider">Revenue · 30 days</div>
+        <div class="text-xl sm:text-2xl font-bold text-indigo-700">₹{{ revenue_30d|floatformat:2 }}</div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="text-[11px] text-slate-500 uppercase tracking-wider">Revenue · all time</div>
+        <div class="text-xl sm:text-2xl font-bold">₹{{ revenue_total|floatformat:2 }}</div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="text-[11px] text-slate-500 uppercase tracking-wider">Profit · booked</div>
+        <div class="text-xl sm:text-2xl font-bold text-emerald-700">₹{{ profit.profit|floatformat:2 }}</div>
+        <div class="text-[11px] text-slate-400 mt-0.5">₹{{ profit.revenue|floatformat:2 }} − ₹{{ profit.material|floatformat:2 }} material</div>
+    </div>
+    <div class="bg-red-50 rounded-2xl border border-red-200 p-4">
+        <div class="text-[11px] text-red-600 uppercase tracking-wider">Outstanding dues</div>
+        <div class="text-xl sm:text-2xl font-bold text-red-700">₹{{ outstanding|floatformat:2 }}</div>
+        <div class="text-[11px] mt-0.5"><a href="{% url 'billing:dues' %}" class="text-red-700 underline">Open dues list →</a></div>
+    </div>
+</div>
+
+<!-- Pipeline strip -->
+<div class="bg-white rounded-2xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+    <span><strong>{{ counts.open }}</strong> <span class="text-slate-500">open</span></span>
+    <span><strong>{{ counts.delivered }}</strong> <span class="text-slate-500">delivered</span></span>
+    <span><strong>{{ counts.cancelled }}</strong> <span class="text-slate-500">cancelled</span></span>
+    <span><strong>{{ counts.total }}</strong> <span class="text-slate-500">total orders</span></span>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <!-- Daily revenue -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+        <h3 class="font-bold mb-4">Revenue · last 14 days</h3>
+        <div class="space-y-1.5">
+            {% for row in daily %}
+            <div class="flex items-center gap-2 text-xs">
+                <span class="w-12 flex-shrink-0 text-slate-500">{{ row.label }}</span>
+                <div class="flex-1 h-5 bg-slate-100 rounded-md overflow-hidden">
+                    <div class="h-full bg-indigo-500 rounded-md" style="width: {{ row.width }}%"></div>
+                </div>
+                <span class="w-16 flex-shrink-0 text-right font-medium">₹{{ row.total|floatformat:0 }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Monthly revenue -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+        <h3 class="font-bold mb-4">Revenue · last 6 months</h3>
+        <div class="space-y-1.5">
+            {% for row in monthly %}
+            <div class="flex items-center gap-2 text-xs">
+                <span class="w-12 flex-shrink-0 text-slate-500">{{ row.label }}</span>
+                <div class="flex-1 h-5 bg-slate-100 rounded-md overflow-hidden">
+                    <div class="h-full bg-emerald-500 rounded-md" style="width: {{ row.width }}%"></div>
+                </div>
+                <span class="w-16 flex-shrink-0 text-right font-medium">₹{{ row.total|floatformat:0 }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Service mix -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+        <h3 class="font-bold mb-1">Service mix</h3>
+        <p class="text-xs text-slate-500 mb-4">Booked revenue by service (non-cancelled).</p>
+        <div class="space-y-2">
+            {% for row in mix %}
+            <div class="text-xs">
+                <div class="flex items-center justify-between mb-1">
+                    <span class="font-medium">{{ row.label }} <span class="text-slate-400">· {{ row.count }} order{{ row.count|pluralize }}</span></span>
+                    <span class="font-bold">₹{{ row.revenue|floatformat:0 }}</span>
+                </div>
+                <div class="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div class="h-full bg-amber-400 rounded-full" style="width: {{ row.width }}%"></div>
+                </div>
+            </div>
+            {% empty %}
+            <p class="text-sm text-slate-400">No orders yet.</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Orders by stage -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+        <h3 class="font-bold mb-4">Orders by stage</h3>
+        <div class="flex flex-wrap gap-2">
+            {% for row in stages %}
+            <div class="px-3 py-2 rounded-xl text-xs font-medium
+                {% if row.count > 0 %}bg-indigo-50 text-indigo-800 border border-indigo-200{% else %}bg-slate-50 text-slate-400 border border-slate-200{% endif %}">
+                {{ row.label }} · {{ row.count }}
+            </div>
+            {% endfor %}
+        </div>
+        <h3 class="font-bold mt-5 mb-2">Weekly revenue · last 8 weeks</h3>
+        <div class="space-y-1.5">
+            {% for row in weekly %}
+            <div class="flex items-center gap-2 text-xs">
+                <span class="w-12 flex-shrink-0 text-slate-500">{{ row.label }}</span>
+                <div class="flex-1 h-4 bg-slate-100 rounded-md overflow-hidden">
+                    <div class="h-full bg-teal-500 rounded-md" style="width: {{ row.width }}%"></div>
+                </div>
+                <span class="w-16 flex-shrink-0 text-right font-medium">₹{{ row.total|floatformat:0 }}</span>
+            </div>
+            {% empty %}
+            <p class="text-sm text-slate-400">No revenue yet.</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Stuck orders -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+        <div class="flex items-center justify-between mb-1">
+            <h3 class="font-bold">Stuck orders</h3>
+            <span class="text-xs bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full">{{ stuck|length }} stuck</span>
+        </div>
+        <p class="text-xs text-slate-500 mb-4">Open orders unchanged for over 3 days.</p>
+        {% if stuck %}
+        <ul class="space-y-2">
+            {% for order in stuck %}
+            <li>
+                <a href="{% url 'orders:detail' order.id %}" class="flex items-center justify-between bg-amber-50/50 rounded-xl border border-amber-100 px-3 py-2.5 hover:border-amber-300">
+                    <div class="min-w-0">
+                        <div class="font-medium text-sm truncate">{{ order.order_number }} · {{ order.customer.name }}</div>
+                        <div class="text-xs text-slate-500">{{ order.get_stage_display }} · promised {{ order.promised_date|date:"d M"|default:"—" }}</div>
+                    </div>
+                    <span class="text-xs font-bold text-amber-700 flex-shrink-0 ml-2">{{ order.stuck_days }}d</span>
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-sm text-slate-400">🎉 Nothing stuck — pipeline is moving.</p>
+        {% endif %}
+    </div>
+
+    <!-- Top customers -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+        <h3 class="font-bold mb-1">Top customers</h3>
+        <p class="text-xs text-slate-500 mb-4">By booked revenue (non-cancelled).</p>
+        {% if top %}
+        <ul class="space-y-2">
+            {% for c in top %}
+            <li>
+                <a href="{% url 'customers:detail' c.id %}" class="flex items-center justify-between bg-slate-50 rounded-xl border border-slate-200 px-3 py-2.5 hover:border-indigo-200">
+                    <div class="min-w-0">
+                        <div class="font-medium text-sm truncate">{{ c.name }}</div>
+                        <div class="text-xs text-slate-500">{{ c.order_count }} order{{ c.order_count|pluralize }}</div>
+                    </div>
+                    <span class="font-bold text-sm flex-shrink-0 ml-2">₹{{ c.revenue|floatformat:0 }}</span>
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-sm text-slate-400">No customers yet.</p>
+        {% endif %}
+    </div>
 </div>
 {% endblock %}
