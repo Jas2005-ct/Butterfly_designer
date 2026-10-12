@@ -58,15 +58,16 @@ def stage_labels_for(codes):
     return [(code, labels[code]) for code in STAGE_ORDER if code in wanted]
 
 
-def can_transition(from_stage: str, to_stage: str, user_is_admin: bool = False) -> bool:
-    """Check if a stage transition is allowed."""
+def can_transition(from_stage: str, to_stage: str) -> bool:
+    """Pure lifecycle rules: is this move allowed without an admin force?
+
+    Why no role parameter: access control lives in advance_stage() and the
+    views. Keeping this function rule-only means the transition map can be
+    reasoned about (and tested) without user context.
+    """
     if from_stage == to_stage:
         return False
-    allowed = VALID_NEXT_STAGES.get(from_stage, set())
-    if to_stage in allowed:
-        return True
-    # Admins can force any transition (with required note in the view)
-    return user_is_admin
+    return to_stage in VALID_NEXT_STAGES.get(from_stage, set())
 
 
 def advance_stage(
@@ -95,8 +96,14 @@ def advance_stage(
     from_stage = order.stage
     changer_is_admin = bool(getattr(getattr(changed_by, "profile", None), "is_admin", False))
 
-    if not force and not can_transition(from_stage, to_stage, user_is_admin=changer_is_admin):
-        raise ValueError(f"Invalid transition: {from_stage} → {to_stage}")
+    if not can_transition(from_stage, to_stage):
+        # Outside the lifecycle map: admin-only, force flag, and note — all three.
+        if not changer_is_admin:
+            raise ValueError(f"Invalid transition: {from_stage} → {to_stage}")
+        if not force:
+            raise ValueError(f"Transition {from_stage} → {to_stage} needs an admin force.")
+        if not note.strip():
+            raise ValueError("Note is required for forced transitions.")
 
     # Backward moves and cancels require a note
     is_backward = (

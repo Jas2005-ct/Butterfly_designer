@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
-from django.db.models import Prefetch, Q
+from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
@@ -83,7 +83,9 @@ def _detail_status_context(order, user):
     context["show_cancel"] = OrderStage.CANCELLED in codes and order.stage != OrderStage.CANCELLED
     context["is_cancelled"] = order.stage == OrderStage.CANCELLED
 
-    history = list(order.stage_history.select_related("changed_by").order_by("changed_at"))
+    # Sort the prefetched history in Python: calling .order_by() here would
+    # issue a fresh query instead of using the prefetched cache.
+    history = sorted(order.stage_history.all(), key=lambda h: h.changed_at)
     reached = {h.to_stage for h in history}
     if order.stage != OrderStage.CANCELLED:
         reached.add(order.stage)
@@ -139,11 +141,11 @@ def board(request):
             | Q(customer__phone__icontains=query)
         )
 
-    counts = {
-        "active": orders_qs.exclude(stage__in=[OrderStage.DELIVERED, OrderStage.CANCELLED]).count(),
-        "delivered": orders_qs.filter(stage=OrderStage.DELIVERED).count(),
-        "cancelled": orders_qs.filter(stage=OrderStage.CANCELLED).count(),
-    }
+    counts = orders_qs.aggregate(
+        active=Count("pk", filter=~Q(stage__in=[OrderStage.DELIVERED, OrderStage.CANCELLED])),
+        delivered=Count("pk", filter=Q(stage=OrderStage.DELIVERED)),
+        cancelled=Count("pk", filter=Q(stage=OrderStage.CANCELLED)),
+    )
 
     if tab == "active":
         visible_stages = [s for s in STAGE_ORDER if s not in (OrderStage.DELIVERED, OrderStage.CANCELLED)]
