@@ -79,12 +79,15 @@ def annotate_balances(queryset):
     Why: board badges and the dues report need per-order money without
     N+1 queries — one GROUP BY serves the whole list.
     """
+    # Two annotate() steps: referencing the paid alias inside the same call
+    # works today but is fragile — the second call sees a resolved alias.
     return queryset.annotate(
         paid=Coalesce(
             Sum("payments__amount"),
             Decimal("0"),
             output_field=DecimalField(max_digits=10, decimal_places=2),
-        ),
+        )
+    ).annotate(
         balance=F("total") - F("paid"),
     )
 

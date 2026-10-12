@@ -16,11 +16,11 @@
 <div class="grid grid-cols-3 gap-3 mb-4 text-center">
     <div class="bg-slate-50 rounded-xl border border-slate-200 px-2 py-3">
         <div class="text-[11px] text-slate-500 uppercase tracking-wider">Total</div>
-        <div class="font-bold">₹{{ order.total }}</div>
+        <div class="font-bold">₹{{ order.total|floatformat:2 }}</div>
     </div>
     <div class="bg-slate-50 rounded-xl border border-slate-200 px-2 py-3">
         <div class="text-[11px] text-slate-500 uppercase tracking-wider">Paid</div>
-        <div class="font-bold text-emerald-700">₹{{ paid }}</div>
+        <div class="font-bold text-emerald-700">₹{{ paid|floatformat:2 }}</div>
     </div>
     <div class="rounded-xl border px-2 py-3
         {% if balance > 0 %}bg-red-50 border-red-200
@@ -30,7 +30,7 @@
         <div class="font-bold
             {% if balance > 0 %}text-red-700
             {% elif balance < 0 %}text-amber-700
-            {% else %}text-emerald-700{% endif %}">₹{{ balance }}</div>
+            {% else %}text-emerald-700{% endif %}">₹{{ balance|floatformat:2 }}</div>
     </div>
 </div>
 
@@ -49,7 +49,7 @@
     {% for p in payments %}
     <div class="flex items-center justify-between bg-slate-50 rounded-xl border border-slate-200 px-3 py-2.5">
         <div>
-            <span class="font-bold">₹{{ p.amount }}</span>
+            <span class="font-bold">₹{{ p.amount|floatformat:2 }}</span>
             <span class="ml-2 text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">{{ p.get_mode_display }}</span>
             {% if p.note %}<div class="text-xs text-slate-500 mt-0.5">{{ p.note }}</div>{% endif %}
         </div>

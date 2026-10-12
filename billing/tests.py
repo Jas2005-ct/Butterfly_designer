@@ -43,12 +43,16 @@ class BalanceMathTests(TestCase):
     def test_annotate_balances(self):
         o1 = Order.objects.create(customer=self.customer, total=Decimal("500.00"))
         o2 = Order.objects.create(customer=self.customer, total=Decimal("300.00"))
+        o3 = Order.objects.create(customer=self.customer, total=Decimal("400.00"))
         record_payment(o1, "200", PaymentMode.CASH, self.user)
+        record_payment(o3, "500", PaymentMode.UPI, self.user)  # overpaid
         annotated = {o.id: o for o in annotate_balances(Order.objects.all())}
         self.assertEqual(annotated[o1.id].paid, Decimal("200.00"))
         self.assertEqual(annotated[o1.id].balance, Decimal("300.00"))
         self.assertEqual(annotated[o2.id].paid, Decimal("0"))
         self.assertEqual(annotated[o2.id].balance, Decimal("300.00"))
+        self.assertEqual(annotated[o3.id].paid, Decimal("500.00"))
+        self.assertEqual(annotated[o3.id].balance, Decimal("-100.00"))
 
 
 class RecordPaymentValidationTests(TestCase):

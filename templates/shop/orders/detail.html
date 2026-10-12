@@ -34,7 +34,7 @@
         </div>
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Total</div>
-            <div class="font-bold text-lg text-indigo-700">₹{{ order.total }}</div>
+            <div class="font-bold text-lg text-indigo-700">₹{{ order.total|floatformat:2 }}</div>
         </div>
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Material Cost</div>

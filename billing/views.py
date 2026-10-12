@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.contrib.auth.decorators import login_required
 from django.db.models import F, Sum
 from django.shortcuts import get_object_or_404, render
@@ -34,7 +36,9 @@ def dues(request):
         sort = "promised"
     orders_qs = orders_qs.order_by(ordering)
 
-    outstanding = orders_qs.aggregate(total=Sum("balance"))["total"] or 0
+    outstanding = orders_qs.aggregate(total=Sum("balance"))["total"]
+    if outstanding is None:
+        outstanding = Decimal("0")
 
     return render(
         request,
