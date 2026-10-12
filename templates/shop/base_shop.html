@@ -8,13 +8,18 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <meta name="theme-color" content="#1e1b4b">
+    <link rel="manifest" href="{% static 'shop/manifest.json' %}">
+    <link rel="apple-touch-icon" href="{% static 'shop/icons/icon-192.png' %}">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <style>
         .nav-safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
 
-    <header class="bg-slate-900 text-white px-4 sm:px-6 lg:px-10 py-3 flex items-center justify-between sticky top-0 z-40">
+    <header class="bg-slate-900 text-white px-4 sm:px-6 lg:px-10 py-3 flex items-center justify-between sticky top-0 z-40 print:hidden">
         <div class="flex items-center gap-2">
             <div class="w-9 h-9 rounded-full bg-indigo-50 flex items-center justify-center text-lg">&#129419;</div>
             <div>
@@ -31,7 +36,7 @@
     </header>
 
     {% if messages %}
-    <div class="px-4 sm:px-6 lg:px-10 pt-3 space-y-2">
+    <div class="px-4 sm:px-6 lg:px-10 pt-3 space-y-2 print:hidden">
         {% for message in messages %}
         <div class="px-4 py-3 rounded-lg text-sm font-medium
             {% if message.tags == 'error' %}bg-red-50 text-red-700 border border-red-200
@@ -51,7 +56,7 @@
     </main>
 
     {% if user.is_authenticated %}
-    <nav class="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 nav-safe-bottom z-40">
+    <nav class="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 nav-safe-bottom z-40 print:hidden">
         <div class="grid grid-cols-5 text-[11px] sm:text-xs lg:text-sm font-medium text-slate-500">
             <a href="{% url 'orders:board' %}"
                class="flex flex-col items-center justify-center gap-1 py-3 hover:text-indigo-600 {% if request.resolver_match.namespace == 'orders' %}text-indigo-600{% endif %}">

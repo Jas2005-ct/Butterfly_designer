@@ -177,6 +177,17 @@ class OrderViewsTests(TestCase):
         response = self.client.get(reverse("orders:board") + "?tab=delivered")
         self.assertContains(response, delivered.order_number)
 
+    def test_board_has_pwa_manifest_link(self):
+        response = self.client.get(reverse("orders:board"))
+        self.assertContains(response, "shop/manifest.json")
+
+    def test_detail_has_print_receipt(self):
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.READY)
+        response = self.client.get(reverse("orders:detail", args=[order.id]))
+        self.assertContains(response, "Print receipt")
+        self.assertContains(response, "order-receipt")
+        self.assertContains(response, "Balance due")
+
     def test_board_overdue_badge(self):
         yesterday = timezone.now().date() - timedelta(days=1)
         order = Order.objects.create(
