@@ -10,6 +10,7 @@ from django.views.decorators.http import require_http_methods
 
 from .models import Order, OrderStage, OrderStageHistory, ServiceType
 from .services import STAGE_EMOJI, STAGE_ORDER, VALID_NEXT_STAGES, advance_stage, stage_labels_for
+from billing.services import annotate_balances, payment_section_context
 from customers.models import Customer
 
 
@@ -157,6 +158,9 @@ def board(request):
         visible_stages = [OrderStage.CANCELLED]
         orders_qs = orders_qs.filter(stage=OrderStage.CANCELLED)
 
+    # Money per order for the due badge (single GROUP BY, no N+1).
+    orders_qs = annotate_balances(orders_qs)
+
     today = timezone.now().date()
     now = timezone.now()
     columns = {stage: [] for stage in visible_stages}
@@ -262,6 +266,7 @@ def order_detail(request, order_id):
     )
     context = {"order": order}
     context.update(_detail_status_context(order, request.user))
+    context.update(payment_section_context(order))
     return render(request, "shop/orders/detail.html", context)
 
 
