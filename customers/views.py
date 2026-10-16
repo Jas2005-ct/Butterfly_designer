@@ -8,6 +8,27 @@ from .models import Customer
 
 
 @login_required
+def customer_search(request):
+    """HTMX: live customer lookup by name or phone for pickers.
+
+    Why a dedicated endpoint: the order form must stay fast with hundreds
+    of customers — a 100-radio list neither fits nor searches. Returns an
+    HTML partial (top 8 matches) the picker swaps in as you type.
+    """
+    query = request.GET.get("q", "").strip()
+    results = []
+    if len(query) >= 2:
+        results = Customer.objects.filter(
+            Q(name__icontains=query) | Q(phone__icontains=query)
+        ).order_by("-created_at")[:8]
+    return render(
+        request,
+        "shop/customers/_search_results.html",
+        {"results": results, "query": query},
+    )
+
+
+@login_required
 def customer_list(request):
     """Searchable customer list."""
     query = request.GET.get("q", "").strip()

@@ -1,0 +1,33 @@
+<div id="order-card-{{ order.id }}" class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm hover:shadow-md transition-all">
+    <a href="{% url 'orders:detail' order.id %}" class="block">
+        <div class="font-medium text-slate-900">{{ order.order_number }}</div>
+        <div class="text-sm text-slate-500 truncate">{{ order.customer.name }}</div>
+        <div class="text-xs text-slate-400">{{ order.customer.phone }}</div>
+        <div class="mt-2 flex items-center justify-between text-xs">
+            <span class="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700">
+                {{ order.get_service_type_display }}
+            </span>
+            {% if order.promised_date %}
+            <span class="text-slate-500">
+                📅 {{ order.promised_date|date:"d M" }}
+            </span>
+            {% endif %}
+        </div>
+        {% if order.is_overdue or order.is_stuck or order.balance > 0 %}
+        <div class="mt-2 flex flex-wrap gap-1">
+            {% if order.is_overdue %}
+            <span class="px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[11px] font-medium">🔴 Overdue</span>
+            {% endif %}
+            {% if order.is_stuck %}
+            <span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-medium">🟡 {{ order.days_in_stage }}d stuck</span>
+            {% endif %}
+            {% if order.balance > 0 %}
+            <span class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-medium">💰 ₹{{ order.balance|floatformat:2 }} due</span>
+            {% endif %}
+        </div>
+        {% endif %}
+    </a>
+    <div class="mt-2">
+        {% include "shop/orders/_advance_button.html" with prefix="order-card" %}
+    </div>
+</div>

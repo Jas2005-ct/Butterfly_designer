@@ -1,0 +1,55 @@
+{% comment %}
+Dense list rows for high-volume scanning. Same data and same one-tap
+advance as cards, ~3x denser. Expects flat_orders in context.
+{% endcomment %}
+<div class="space-y-2">
+    {% for order in flat_orders %}
+    <div id="order-row-{{ order.id }}" class="bg-white rounded-xl border border-slate-200 p-3 flex items-center gap-3 shadow-sm">
+        <a href="{% url 'orders:detail' order.id %}" class="flex-1 min-w-0 grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 items-center">
+            <div class="min-w-0">
+                <div class="font-medium text-slate-900 text-sm">{{ order.order_number }}</div>
+                <div class="text-xs text-slate-500 truncate">{{ order.customer.name }} · {{ order.customer.phone }}</div>
+            </div>
+            <div class="text-xs">
+                <span class="px-2 py-1 rounded-full bg-slate-100 text-slate-700 font-medium">{{ order.get_stage_display }}</span>
+                {% if order.promised_date %}
+                <span class="text-slate-500 ml-1">📅 {{ order.promised_date|date:"d M" }}</span>
+                {% endif %}
+            </div>
+            <div class="text-xs">
+                <span class="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700">{{ order.get_service_type_display }}</span>
+                {% if order.balance > 0 %}
+                <span class="ml-1 font-bold text-indigo-700">₹{{ order.balance|floatformat:2 }}</span>
+                {% endif %}
+            </div>
+            <div class="flex flex-wrap gap-1">
+                {% if order.is_overdue %}
+                <span class="px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[11px] font-medium">🔴 Overdue</span>
+                {% endif %}
+                {% if order.is_stuck %}
+                <span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-medium">🟡 {{ order.days_in_stage }}d</span>
+                {% endif %}
+                {% if not order.is_overdue and not order.is_stuck %}
+                <span class="text-[11px] text-slate-300">—</span>
+                {% endif %}
+            </div>
+        </a>
+        <div class="w-28 flex-shrink-0">
+            {% include "shop/orders/_advance_button.html" with prefix="order-row" %}
+        </div>
+    </div>
+    {% empty %}
+    <div class="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
+        <p class="font-medium">No orders found</p>
+        <p class="text-sm mt-1">Try a different search or tab.</p>
+    </div>
+    {% endfor %}
+    {% if show_all_link %}
+    <div class="text-center pt-2">
+        <a href="?tab={{ tab }}&view=list{% if query %}&q={{ query }}{% endif %}&show=all"
+           class="inline-block px-5 py-2.5 rounded-xl font-medium text-sm border border-slate-300 text-slate-600 bg-white hover:bg-slate-100">
+            Show all {{ show_all_total }} orders
+        </a>
+    </div>
+    {% endif %}
+</div>

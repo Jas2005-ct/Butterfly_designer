@@ -12,6 +12,7 @@
     <div class="flex gap-2 w-full sm:w-auto">
         <form method="get" class="flex-1 sm:w-64">
             <input type="hidden" name="tab" value="{{ tab }}">
+            <input type="hidden" name="view" value="{{ view_mode }}">
             <input type="text" name="q" value="{{ query }}" placeholder="Search order #, name, phone…"
                    class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
         </form>
@@ -23,24 +24,38 @@
 </div>
 
 <!-- Tabs: Active work by default, finished orders one tap away -->
-<div class="flex gap-2 mb-4" role="tablist" aria-label="Order groups">
-    <a href="?tab=active{% if query %}&q={{ query }}{% endif %}" role="tab"
+<div class="flex flex-wrap gap-2 mb-3" role="tablist" aria-label="Order groups">
+    <a href="?tab=active&view={{ view_mode }}{% if query %}&q={{ query }}{% endif %}" role="tab"
        class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
        {% if tab == 'active' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
         Active ({{ counts.active }})
     </a>
-    <a href="?tab=delivered{% if query %}&q={{ query }}{% endif %}" role="tab"
+    <a href="?tab=delivered&view={{ view_mode }}{% if query %}&q={{ query }}{% endif %}" role="tab"
        class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
        {% if tab == 'delivered' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
         Delivered ({{ counts.delivered }})
     </a>
-    <a href="?tab=cancelled{% if query %}&q={{ query }}{% endif %}" role="tab"
+    <a href="?tab=cancelled&view={{ view_mode }}{% if query %}&q={{ query }}{% endif %}" role="tab"
        class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
        {% if tab == 'cancelled' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
         Cancelled ({{ counts.cancelled }})
     </a>
+    <span class="flex-1"></span>
+    <a href="?tab={{ tab }}&view=board{% if query %}&q={{ query }}{% endif %}"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if view_mode == 'board' %}bg-indigo-600 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        🗂 Board
+    </a>
+    <a href="?tab={{ tab }}&view=list{% if query %}&q={{ query }}{% endif %}"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if view_mode == 'list' %}bg-indigo-600 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        ☰ List
+    </a>
 </div>
 
+{% if view_mode == 'list' %}
+    {% include "shop/orders/_order_list.html" %}
+{% else %}
 <!-- Kanban Board: snap-scrolls per column on touch (portrait tablet),
      shows more columns side-by-side as the screen widens (landscape/desktop). -->
 <div class="overflow-x-auto pb-4 snap-x scroll-smooth">
@@ -52,51 +67,58 @@
                 <h3 class="font-bold text-sm uppercase tracking-wider text-slate-600">
                     {{ stage|capfirst }}
                 </h3>
-                <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                    {{ columns|get_item:stage|length }}
+                <span id="col-count-{{ stage }}" class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                    {{ column_totals|get_item:stage }}
                 </span>
             </div>
 
-            <!-- Order Cards -->
+            <!-- Order Cards (capped; urgency-ordered) -->
             <div class="flex-1 overflow-y-auto p-3 space-y-3 min-h-[400px]">
                 {% for order in columns|get_item:stage %}
-                <a href="{% url 'orders:detail' order.id %}"
-                   class="block bg-white rounded-xl border border-slate-200 p-3 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all">
-                    <div class="font-medium text-slate-900">{{ order.order_number }}</div>
-                    <div class="text-sm text-slate-500 truncate">{{ order.customer.name }}</div>
-                    <div class="text-xs text-slate-400">{{ order.customer.phone }}</div>
-                    <div class="mt-2 flex items-center justify-between text-xs">
-                        <span class="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700">
-                            {{ order.get_service_type_display }}
-                        </span>
-                        {% if order.promised_date %}
-                        <span class="text-slate-500">
-                            📅 {{ order.promised_date|date:"d M" }}
-                        </span>
-                        {% endif %}
-                    </div>
-                    {% if order.is_overdue or order.is_stuck or order.balance > 0 %}
-                    <div class="mt-2 flex flex-wrap gap-1">
-                        {% if order.is_overdue %}
-                        <span class="px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[11px] font-medium">🔴 Overdue</span>
-                        {% endif %}
-                        {% if order.is_stuck %}
-                        <span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-medium">🟡 {{ order.days_in_stage }}d stuck</span>
-                        {% endif %}
-                        {% if order.balance > 0 %}
-                        <span class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-medium">💰 ₹{{ order.balance|floatformat:2 }} due</span>
-                        {% endif %}
-                    </div>
-                    {% endif %}
-                </a>
+                    {% include "shop/orders/_order_card.html" %}
                 {% empty %}
                 <div class="text-center text-slate-300 py-8 text-sm">
                     <p>No orders</p>
                 </div>
                 {% endfor %}
+                {% with remaining=remaining_counts|get_item:stage %}
+                {% if remaining > 0 %}
+                <div class="text-center pt-1">
+                    <a href="?tab={{ tab }}&view=board{% if query %}&q={{ query }}{% endif %}&show=all"
+                       class="inline-block px-4 py-2 rounded-xl text-sm font-medium border border-slate-300 text-slate-600 bg-white hover:bg-slate-100">
+                        Show all {{ remaining }} more
+                    </a>
+                </div>
+                {% endif %}
+                {% endwith %}
             </div>
         </div>
         {% endfor %}
     </div>
 </div>
+{% endif %}
+
+<!-- Inline-advance toast -->
+<div id="board-toast" class="hidden fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-medium px-5 py-3 rounded-xl shadow-xl"></div>
+<script>
+(function () {
+    function bump(id, delta) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var n = parseInt(el.textContent, 10);
+        if (!isNaN(n)) el.textContent = n + delta;
+    }
+    document.body.addEventListener('orderMoved', function (e) {
+        var d = e.detail || {};
+        bump('col-count-' + d.from_stage, -1);
+        bump('col-count-' + d.to_stage, 1);
+        var toast = document.getElementById('board-toast');
+        if (toast && d.number) {
+            toast.textContent = d.number + ' → ' + d.to;
+            toast.classList.remove('hidden');
+            setTimeout(function () { toast.classList.add('hidden'); }, 2500);
+        }
+    });
+})();
+</script>
 {% endblock %}

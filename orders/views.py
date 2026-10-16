@@ -1,12 +1,15 @@
 from decimal import Decimal, InvalidOperation
 
+import json
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Prefetch, Q
+from django.http import HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_http_methods, require_POST
 
 from .models import Order, OrderStage, OrderStageHistory, ServiceType
 from .services import STAGE_EMOJI, STAGE_ORDER, VALID_NEXT_STAGES, advance_stage, stage_labels_for
@@ -30,6 +33,9 @@ def _parse_money(value, field_label):
     if amount < 0:
         return None, f"{field_label} cannot be negative."
     return amount, None
+
+
+BOARD_COLUMN_CAP = 10
 
 
 def _stage_button_context(order, user):
@@ -127,6 +133,10 @@ def board(request):
     tab = request.GET.get("tab", "active")
     if tab not in ("active", "delivered", "cancelled"):
         tab = "active"
+    view_mode = request.GET.get("view", "board")
+    if view_mode not in ("board", "list"):
+        view_mode = "board"
+    show_all = request.GET.get("show") == "all"
 
     orders_qs = (
         Order.objects.select_related("customer")
@@ -164,6 +174,7 @@ def board(request):
 
     today = timezone.now().date()
     now = timezone.now()
+    labels = dict(OrderStage.choices)
     columns = {stage: [] for stage in visible_stages}
     total_orders = 0
     for order in orders_qs:
@@ -173,22 +184,99 @@ def board(request):
             order.days_in_stage = (now - since).days
             order.is_overdue = bool(order.promised_date and order.promised_date < today)
             order.is_stuck = order.days_in_stage > 3
+            # One-tap forward step for cards/rows (None when terminal/backward-only).
+            order.card_next = None
+            order.card_next_label = ""
+            if order.stage in STAGE_ORDER:
+                order_idx = STAGE_ORDER.index(order.stage)
+                forward = [
+                    c for c in STAGE_ORDER
+                    if c in VALID_NEXT_STAGES.get(order.stage, set())
+                    and c != OrderStage.CANCELLED
+                    and STAGE_ORDER.index(c) > order_idx
+                ]
+                if forward:
+                    order.card_next = forward[0]
+                    order.card_next_label = labels[forward[0]]
             columns[order.stage].append(order)
             total_orders += 1
+
+    # Urgency ordering: overdue first, then oldest first (FIFO).
+    # Cap columns so 200+ orders stay light on the tablet DOM.
+    column_totals = {}
+    remaining_counts = {}
+    for stage, cards in columns.items():
+        cards.sort(key=lambda o: (not o.is_overdue, o.created_at))
+        column_totals[stage] = len(cards)
+        if show_all:
+            remaining_counts[stage] = 0
+        else:
+            remaining_counts[stage] = max(0, len(cards) - BOARD_COLUMN_CAP)
+            columns[stage] = cards[:BOARD_COLUMN_CAP]
+
+    flat_orders = [o for stage in visible_stages for o in columns[stage]]
+    show_all_total = total_orders if not show_all else 0
 
     return render(
         request,
         "shop/orders/board.html",
         {
             "columns": columns,
+            "column_totals": column_totals,
+            "remaining_counts": remaining_counts,
+            "flat_orders": flat_orders,
+            "show_all_link": not show_all and total_orders > BOARD_COLUMN_CAP,
+            "show_all_total": show_all_total,
             "stage_order": visible_stages,
             "query": query,
             "tab": tab,
+            "view_mode": view_mode,
+            "show_all": show_all,
             "counts": counts,
             "service_choices": ServiceType.choices,
             "total_orders": total_orders,
         },
     )
+
+
+@login_required
+@require_POST
+def order_card_advance(request, order_id):
+    """HTMX: one-tap forward advance from a board card or list row.
+
+    Why no stage parameter: the server always moves to the single valid
+    forward-next stage, so a tampered request cannot skip stages, go
+    backward, or cancel. Backward/cancel stay on the detail page where a
+    reason is collected. Empty body on success: HTMX removes the card/row
+    via outerHTML swap; counts + toast update client-side from HX-Trigger.
+    """
+    order = get_object_or_404(Order, id=order_id)
+    from_stage = order.stage
+    forward = []
+    if from_stage in STAGE_ORDER:
+        order_idx = STAGE_ORDER.index(from_stage)
+        forward = [
+            c for c in STAGE_ORDER
+            if c in VALID_NEXT_STAGES.get(from_stage, set())
+            and c != OrderStage.CANCELLED
+            and STAGE_ORDER.index(c) > order_idx
+        ]
+    if not forward:
+        return HttpResponseBadRequest("No forward move available.")
+    try:
+        advance_stage(order, forward[0], request.user)
+    except ValueError as e:
+        return HttpResponseBadRequest(str(e))
+    response = HttpResponse("")
+    response["HX-Trigger"] = json.dumps({
+        "orderMoved": {
+            "number": order.order_number,
+            "to": order.get_stage_display(),
+            "from_stage": from_stage,
+            "to_stage": order.stage,
+        }
+    })
+    return response
 
 
 @login_required
@@ -246,13 +334,16 @@ def order_create(request):
         messages.success(request, f"Order {order.order_number} created.")
         return redirect("orders:detail", order_id=order.id)
 
-    # GET: show form with customer list
-    customers = Customer.objects.all().order_by("-created_at")[:100]
+    # GET: show form; an existing customer can be preselected via ?customer=<id>.
+    selected_customer = None
+    preselect_id = request.GET.get("customer")
+    if preselect_id:
+        selected_customer = Customer.objects.filter(id=preselect_id).first()
     return render(
         request,
         "shop/orders/create.html",
         {
-            "customers": customers,
+            "selected_customer": selected_customer,
             "service_choices": ServiceType.choices,
         },
     )
