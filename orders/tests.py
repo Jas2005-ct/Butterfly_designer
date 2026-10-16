@@ -6,7 +6,14 @@ from django.urls import reverse
 from django.utils import timezone
 
 from customers.models import Customer
-from orders.models import Order, OrderStage, OrderStageHistory, ServiceType, generate_order_number
+from orders.models import (
+    Order,
+    OrderItem,
+    OrderStage,
+    OrderStageHistory,
+    ServiceType,
+    generate_order_number,
+)
 from orders.services import advance_stage, can_transition, VALID_NEXT_STAGES
 
 
@@ -151,6 +158,26 @@ class OrderViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Order Board")
 
+    def test_shop_pages_use_local_assets_not_cdn(self):
+        """Compiled CSS + vendored HTMX: no CDN dependency on shop pages."""
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
+        for url in [
+            reverse("orders:board"),
+            reverse("orders:detail", args=[order.id]),
+        ]:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            self.assertNotContains(response, "cdn.tailwindcss.com")
+            self.assertNotContains(response, "unpkg.com")
+            self.assertContains(response, "styles")
+            self.assertContains(response, "shop/manifest.json")
+        # Login page renders for anonymous users (logged-in users redirect).
+        self.client.logout()
+        response = self.client.get(reverse("accounts:login"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "cdn.tailwindcss.com")
+        self.assertContains(response, "styles")
+
     def test_detail_shows_stepper_and_primary_action(self):
         order = Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
         response = self.client.get(reverse("orders:detail", args=[order.id]))
@@ -272,6 +299,12 @@ class TrackingViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.order.order_number)
 
+    def test_track_page_uses_compiled_css(self):
+        url = reverse("orders:track", args=[self.order.track_token])
+        response = self.client.get(url)
+        self.assertNotContains(response, "cdn.tailwindcss.com")
+        self.assertContains(response, "styles")
+
     def test_track_page_shows_milestones(self):
         url = reverse("orders:track", args=[self.order.track_token])
         response = self.client.get(url)
@@ -314,3 +347,23 @@ class CustomerViewsTests(TestCase):
         response = self.client.get(reverse("customers:detail", args=[customer.id]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Order History")
+
+
+class GenerateDummyDataCommandTests(TestCase):
+    def test_generate_dummy_data_command(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        out = StringIO()
+        call_command(
+            "generate_dummy_data",
+            customers=3,
+            orders=5,
+            days=15,
+            seed=42,
+            stdout=out,
+        )
+        self.assertIn("DUMMY DATA GENERATION COMPLETE", out.getvalue())
+        self.assertGreaterEqual(Customer.objects.count(), 3)
+        self.assertGreaterEqual(Order.objects.count(), 5)
+        self.assertTrue(OrderItem.objects.exists())
