@@ -1,0 +1,124 @@
+{% extends "shop/base_shop.html" %}
+{% load shop_extras %}
+
+{% block title %}Order Board — Butterfly Shop{% endblock %}
+
+{% block content %}
+<div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div>
+        <h1 class="text-2xl font-bold">Order Board</h1>
+        <p class="text-slate-500 text-sm">{{ total_orders }} order{{ total_orders|pluralize }} · {{ tab|capfirst }}</p>
+    </div>
+    <div class="flex gap-2 w-full sm:w-auto">
+        <form method="get" class="flex-1 sm:w-64">
+            <input type="hidden" name="tab" value="{{ tab }}">
+            <input type="hidden" name="view" value="{{ view_mode }}">
+            <input type="text" name="q" value="{{ query }}" placeholder="Search order #, name, phone…"
+                   class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+        </form>
+        <a href="{% url 'orders:create' %}"
+           class="bg-slate-900 text-white px-5 py-3 rounded-xl font-bold text-sm hover:bg-indigo-600 transition-colors whitespace-nowrap">
+            + New Order
+        </a>
+    </div>
+</div>
+
+<!-- Tabs: Active work by default, finished orders one tap away -->
+<div class="flex flex-wrap gap-2 mb-3" role="tablist" aria-label="Order groups">
+    <a href="?tab=active&view={{ view_mode }}{% if query %}&q={{ query }}{% endif %}" role="tab"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if tab == 'active' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        Active ({{ counts.active }})
+    </a>
+    <a href="?tab=delivered&view={{ view_mode }}{% if query %}&q={{ query }}{% endif %}" role="tab"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if tab == 'delivered' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        Delivered ({{ counts.delivered }})
+    </a>
+    <a href="?tab=cancelled&view={{ view_mode }}{% if query %}&q={{ query }}{% endif %}" role="tab"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if tab == 'cancelled' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        Cancelled ({{ counts.cancelled }})
+    </a>
+    <span class="flex-1"></span>
+    <a href="?tab={{ tab }}&view=board{% if query %}&q={{ query }}{% endif %}"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if view_mode == 'board' %}bg-indigo-600 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        🗂 Board
+    </a>
+    <a href="?tab={{ tab }}&view=list{% if query %}&q={{ query }}{% endif %}"
+       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
+       {% if view_mode == 'list' %}bg-indigo-600 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+        ☰ List
+    </a>
+</div>
+
+{% if view_mode == 'list' %}
+    {% include "shop/orders/_order_list.html" %}
+{% else %}
+<!-- Kanban Board: snap-scrolls per column on touch (portrait tablet),
+     shows more columns side-by-side as the screen widens (landscape/desktop). -->
+<div class="overflow-x-auto pb-4 snap-x scroll-smooth">
+    <div class="flex gap-3 min-w-max" style="min-width: 100%;">
+        {% for stage in stage_order %}
+        <div class="w-72 lg:w-80 flex-shrink-0 snap-start bg-slate-50 rounded-2xl border border-slate-200 flex flex-col">
+            <!-- Stage Header -->
+            <div class="px-4 py-3 border-b border-slate-200 bg-white rounded-t-2xl flex items-center justify-between sticky top-0">
+                <h3 class="font-bold text-sm uppercase tracking-wider text-slate-600">
+                    {{ stage|capfirst }}
+                </h3>
+                <span id="col-count-{{ stage }}" class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                    {{ column_totals|get_item:stage }}
+                </span>
+            </div>
+
+            <!-- Order Cards (capped; urgency-ordered) -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-3 min-h-[400px]">
+                {% for order in columns|get_item:stage %}
+                    {% include "shop/orders/_order_card.html" %}
+                {% empty %}
+                <div class="text-center text-slate-300 py-8 text-sm">
+                    <p>No orders</p>
+                </div>
+                {% endfor %}
+                {% with remaining=remaining_counts|get_item:stage %}
+                {% if remaining > 0 %}
+                <div class="text-center pt-1">
+                    <a href="?tab={{ tab }}&view=board{% if query %}&q={{ query }}{% endif %}&show=all"
+                       class="inline-block px-4 py-2 rounded-xl text-sm font-medium border border-slate-300 text-slate-600 bg-white hover:bg-slate-100">
+                        Show all {{ remaining }} more
+                    </a>
+                </div>
+                {% endif %}
+                {% endwith %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Inline-advance toast -->
+<div id="board-toast" class="hidden fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-medium px-5 py-3 rounded-xl shadow-xl"></div>
+<script>
+(function () {
+    function bump(id, delta) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        var n = parseInt(el.textContent, 10);
+        if (!isNaN(n)) el.textContent = n + delta;
+    }
+    document.body.addEventListener('orderMoved', function (e) {
+        var d = e.detail || {};
+        bump('col-count-' + d.from_stage, -1);
+        bump('col-count-' + d.to_stage, 1);
+        var toast = document.getElementById('board-toast');
+        if (toast && d.number) {
+            toast.textContent = d.number + ' → ' + d.to;
+            toast.classList.remove('hidden');
+            setTimeout(function () { toast.classList.add('hidden'); }, 2500);
+        }
+    });
+})();
+</script>
+{% endblock %}

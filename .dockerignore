@@ -10,5 +10,7 @@ venv
 .git
 .gitignore
 .vscode
+media/
 .uv
 .cache
+node_modules/

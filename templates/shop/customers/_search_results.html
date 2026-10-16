@@ -1,0 +1,30 @@
+{% comment %}
+Live customer search results for pickers (order form). Rendered by
+customers:search via HTMX as the staff types (min 2 chars, top 8).
+Row tap calls selectCustomer() defined on the hosting page.
+{% endcomment %}
+{% if results %}
+<ul class="divide-y divide-slate-100">
+    {% for c in results %}
+    <li>
+        <button type="button"
+                onclick="selectCustomer({{ c.id }}, '{{ c.name|escapejs }}', '{{ c.phone|escapejs }}')"
+                class="w-full text-left px-4 py-3 hover:bg-indigo-50 transition-colors flex items-center justify-between gap-2">
+            <span>
+                <span class="block font-medium">{{ c.name }}</span>
+                <span class="block text-sm text-slate-500">{{ c.phone }}</span>
+            </span>
+            <span class="text-indigo-600 text-sm font-medium flex-shrink-0">Select →</span>
+        </button>
+    </li>
+    {% endfor %}
+</ul>
+{% elif query|length >= 2 %}
+<div class="px-4 py-6 text-center text-sm text-slate-400">
+    No match for “{{ query }}” — use “New customer” below.
+</div>
+{% else %}
+<div class="px-4 py-4 text-center text-xs text-slate-400">
+    Type at least 2 letters of a name or phone number.
+</div>
+{% endif %}

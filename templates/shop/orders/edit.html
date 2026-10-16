@@ -1,0 +1,79 @@
+{% extends "shop/base_shop.html" %}
+
+{% block title %}Edit {{ order.order_number }} — Butterfly Shop{% endblock %}
+
+{% block content %}
+<div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div>
+        <h1 class="text-2xl font-bold">Edit {{ order.order_number }}</h1>
+        <p class="text-slate-500 text-sm">{{ order.customer.name }} · {{ order.customer.phone }}</p>
+    </div>
+    <a href="{% url 'orders:detail' order.id %}"
+       class="px-4 py-2 rounded-xl font-medium border border-slate-300 text-slate-600 hover:bg-slate-100 text-sm">
+        Back
+    </a>
+</div>
+
+<form method="post" class="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 space-y-5 max-w-2xl lg:max-w-4xl">
+    {% csrf_token %}
+
+    <!-- Service Type -->
+    <div>
+        <label class="block text-sm font-medium text-slate-700 mb-2">Service Type</label>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {% for value, label in service_choices %}
+            <label class="border border-slate-300 rounded-xl p-3 text-center cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
+                <input type="radio" name="service_type" value="{{ value }}" class="sr-only" {% if value == order.service_type %}checked{% endif %}>
+                <span class="font-medium text-sm">{{ label }}</span>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Description -->
+    <div>
+        <label for="description" class="block text-sm font-medium text-slate-700 mb-1">Description</label>
+        <textarea name="description" id="description" rows="3"
+                  class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">{{ order.description }}</textarea>
+    </div>
+
+    <!-- Financial -->
+    <div class="grid grid-cols-2 gap-4">
+        <div>
+            <label for="total" class="block text-sm font-medium text-slate-700 mb-1">Total (₹) *</label>
+            <input type="number" name="total" id="total" step="0.01" min="0" value="{{ order.total }}" required
+                   class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+        </div>
+        <div>
+            <label for="material_cost" class="block text-sm font-medium text-slate-700 mb-1">Material Cost (₹)</label>
+            <input type="number" name="material_cost" id="material_cost" step="0.01" min="0" value="{{ order.material_cost|default:'' }}"
+                   class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+        </div>
+    </div>
+
+    <!-- Promised Date -->
+    <div>
+        <label for="promised_date" class="block text-sm font-medium text-slate-700 mb-1">Promised Delivery Date</label>
+        <input type="date" name="promised_date" id="promised_date" value="{{ order.promised_date|date:'Y-m-d' }}"
+               class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+    </div>
+
+    <!-- Notes -->
+    <div>
+        <label for="notes" class="block text-sm font-medium text-slate-700 mb-1">Internal Notes</label>
+        <textarea name="notes" id="notes" rows="2"
+                  class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">{{ order.notes }}</textarea>
+    </div>
+
+    <div class="flex gap-3 pt-2">
+        <button type="submit"
+                class="flex-1 bg-slate-900 text-white font-bold px-4 py-3.5 rounded-xl hover:bg-indigo-600 transition-colors">
+            Save Changes
+        </button>
+        <a href="{% url 'orders:detail' order.id %}"
+           class="px-6 py-3.5 rounded-xl font-medium border border-slate-300 text-slate-600 hover:bg-slate-100">
+            Cancel
+        </a>
+    </div>
+</form>
+{% endblock %}

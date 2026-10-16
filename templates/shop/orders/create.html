@@ -1,0 +1,173 @@
+{% extends "shop/base_shop.html" %}
+
+{% block title %}New Order — Butterfly Shop{% endblock %}
+
+{% block content %}
+<div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div>
+        <h1 class="text-2xl font-bold">New Order</h1>
+        <p class="text-slate-500 text-sm">Find the customer, then describe the work.</p>
+    </div>
+    <a href="{% url 'orders:board' %}"
+       class="px-4 py-2 rounded-xl font-medium border border-slate-300 text-slate-600 hover:bg-slate-100 text-sm self-start">
+        Back to Board
+    </a>
+</div>
+
+<form method="post" id="order-form">
+    {% csrf_token %}
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+        <!-- Customer panel -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-5">
+            <h2 class="font-bold mb-1">Customer</h2>
+            <p class="text-xs text-slate-500 mb-4">Search by name or phone, or add a new customer.</p>
+
+            <input type="hidden" name="customer" id="customer-id"
+                   value="{% if selected_customer %}{{ selected_customer.id }}{% endif %}">
+
+            <!-- Selected customer chip -->
+            <div id="selected-customer" class="{% if not selected_customer %}hidden{% endif %} mb-3">
+                <div class="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
+                    <div class="min-w-0">
+                        <div class="font-medium truncate" id="selected-name">{{ selected_customer.name|default:"" }}</div>
+                        <div class="text-sm text-slate-500" id="selected-phone">{{ selected_customer.phone|default:"" }}</div>
+                    </div>
+                    <button type="button" onclick="clearCustomer()"
+                            class="ml-3 text-sm font-medium text-indigo-700 hover:text-indigo-900 flex-shrink-0">
+                        Change
+                    </button>
+                </div>
+            </div>
+
+            <!-- Search -->
+            <div id="customer-search-box" class="{% if selected_customer %}hidden{% endif %}">
+                <input type="text" id="customer-search" autocomplete="off"
+                       hx-get="{% url 'customers:search' %}"
+                       hx-trigger="keyup changed delay:300ms"
+                       hx-target="#customer-results"
+                       hx-swap="innerHTML"
+                       name="q" placeholder="Type name or phone…"
+                       class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                <div id="customer-results"
+                     class="mt-2 border border-slate-200 rounded-xl overflow-hidden bg-white min-h-[64px]">
+                    {% include "shop/customers/_search_results.html" with results=None query="" %}
+                </div>
+                <button type="button" onclick="showNewCustomer()"
+                        class="mt-3 w-full px-4 py-3 rounded-xl font-medium border border-dashed border-slate-300 text-slate-600 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
+                    + New customer
+                </button>
+            </div>
+
+            <!-- Inline new-customer fields -->
+            <div id="new-customer-fields" class="hidden mt-1 space-y-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label for="customer_name" class="block text-sm font-medium text-slate-700 mb-1">Name *</label>
+                        <input type="text" name="customer_name" id="customer_name"
+                               class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                    </div>
+                    <div>
+                        <label for="customer_phone" class="block text-sm font-medium text-slate-700 mb-1">Phone *</label>
+                        <input type="tel" name="customer_phone" id="customer_phone"
+                               class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                    </div>
+                </div>
+                <button type="button" onclick="showSearch()"
+                        class="text-sm font-medium text-slate-500 hover:text-indigo-700">
+                    ← Back to search
+                </button>
+            </div>
+        </div>
+
+        <!-- Order details panel -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-5">
+            <h2 class="font-bold mb-4">Order details</h2>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-700 mb-2">Service Type</label>
+                <div class="grid grid-cols-2 gap-3">
+                    {% for value, label in service_choices %}
+                    <label class="border border-slate-300 rounded-xl p-3 text-center cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
+                        <input type="radio" name="service_type" value="{{ value }}" class="sr-only" {% if value == 'other' %}checked{% endif %}>
+                        <span class="font-medium text-sm">{{ label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label for="description" class="block text-sm font-medium text-slate-700 mb-1">Description</label>
+                <textarea name="description" id="description" rows="3" placeholder="Blouse with lining, princess cut…"
+                          class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"></textarea>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label for="total" class="block text-sm font-medium text-slate-700 mb-1">Total (₹) *</label>
+                    <input type="number" name="total" id="total" step="0.01" min="0" value="0" required
+                           class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                </div>
+                <div>
+                    <label for="material_cost" class="block text-sm font-medium text-slate-700 mb-1">Material (₹)</label>
+                    <input type="number" name="material_cost" id="material_cost" step="0.01" min="0"
+                           class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+                <div>
+                    <label for="promised_date" class="block text-sm font-medium text-slate-700 mb-1">Promised date</label>
+                    <input type="date" name="promised_date" id="promised_date"
+                           class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                </div>
+                <div>
+                    <label for="notes" class="block text-sm font-medium text-slate-700 mb-1">Internal notes</label>
+                    <input type="text" name="notes" id="notes"
+                           class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                </div>
+            </div>
+
+            <button type="submit"
+                    class="w-full bg-slate-900 text-white text-lg font-bold px-4 py-3.5 rounded-xl hover:bg-indigo-600 transition-colors">
+                Create Order
+            </button>
+        </div>
+    </div>
+</form>
+
+<script>
+function selectCustomer(id, name, phone) {
+    document.getElementById('customer-id').value = id;
+    document.getElementById('selected-name').textContent = name;
+    document.getElementById('selected-phone').textContent = phone;
+    document.getElementById('selected-customer').classList.remove('hidden');
+    document.getElementById('customer-search-box').classList.add('hidden');
+    document.getElementById('new-customer-fields').classList.add('hidden');
+}
+function clearCustomer() {
+    document.getElementById('customer-id').value = '';
+    document.getElementById('selected-customer').classList.add('hidden');
+    document.getElementById('customer-search-box').classList.remove('hidden');
+}
+function showNewCustomer() {
+    document.getElementById('customer-id').value = '';
+    document.getElementById('customer-search-box').classList.add('hidden');
+    document.getElementById('new-customer-fields').classList.remove('hidden');
+}
+function showSearch() {
+    document.getElementById('new-customer-fields').classList.add('hidden');
+    document.getElementById('customer-search-box').classList.remove('hidden');
+}
+document.getElementById('order-form').addEventListener('submit', function (e) {
+    var hasCustomer = document.getElementById('customer-id').value !== '';
+    var newVisible = !document.getElementById('new-customer-fields').classList.contains('hidden');
+    var name = document.getElementById('customer_name').value.trim();
+    var phone = document.getElementById('customer_phone').value.trim();
+    if (!hasCustomer && !(newVisible && name && phone)) {
+        e.preventDefault();
+        alert('Please select a customer or enter a new customer name + phone.');
+    }
+});
+</script>
+{% endblock %}

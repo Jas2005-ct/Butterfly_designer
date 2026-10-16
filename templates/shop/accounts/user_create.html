@@ -1,0 +1,52 @@
+{% extends "shop/base_shop.html" %}
+
+{% block title %}New user — Butterfly Shop{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <h1 class="text-2xl font-bold">New user</h1>
+    <p class="text-slate-500 text-sm">Create a shop account.</p>
+</div>
+
+<form method="post" class="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 space-y-4 max-w-md lg:max-w-2xl">
+    {% csrf_token %}
+
+    <div>
+        <label for="username" class="block text-sm font-medium text-slate-700 mb-1">Username</label>
+        <input type="text" name="username" id="username" required
+               class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+    </div>
+
+    <div>
+        <label for="password" class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+        <input type="password" name="password" id="password" required minlength="6"
+               class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+    </div>
+
+    <div>
+        <label class="block text-sm font-medium text-slate-700 mb-2">Role</label>
+        <div class="grid grid-cols-2 gap-3">
+            {% for value, label in roles %}
+            <label class="border border-slate-300 rounded-xl px-4 py-3 text-center cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
+                <input type="radio" name="role" value="{{ value }}" class="sr-only" {% if value == 'manager' %}checked{% endif %}>
+                <span class="font-medium text-sm">{{ label }}</span>
+                <span class="block text-xs text-slate-500 mt-0.5">
+                    {% if value == 'admin' %}Full access + analytics{% else %}Daily shop work{% endif %}
+                </span>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="flex gap-3 pt-2">
+        <button type="submit"
+                class="flex-1 bg-slate-900 text-white font-bold px-4 py-3 rounded-xl hover:bg-indigo-600 transition-colors">
+            Create user
+        </button>
+        <a href="{% url 'accounts:user_list' %}"
+           class="px-5 py-3 rounded-xl font-medium border border-slate-300 text-slate-600 hover:bg-slate-100">
+            Cancel
+        </a>
+    </div>
+</form>
+{% endblock %}

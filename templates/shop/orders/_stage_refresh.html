@@ -1,0 +1,8 @@
+{% comment %}
+HTMX stage-advance response: the buttons swap inline into #stage-buttons,
+while the stepper and timeline refresh via out-of-band swaps so the whole
+detail page stays consistent without a reload.
+{% endcomment %}
+{% include "shop/orders/_stage_buttons.html" %}
+<div id="order-stepper" hx-swap-oob="true">{% include "shop/orders/_order_stepper.html" %}</div>
+<div id="stage-timeline" hx-swap-oob="true">{% include "shop/orders/_stage_timeline.html" %}</div>
