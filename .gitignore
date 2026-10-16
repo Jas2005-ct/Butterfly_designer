@@ -85,3 +85,7 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# OpenCode local config (contains DB credentials)
+opencode.jsonc
+.opencode/

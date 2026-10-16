@@ -1,10 +1,11 @@
+{% load tailwind_tags %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ order.order_number }} — Track Order</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    {% tailwind_css %}
     <meta name="theme-color" content="#1e1b4b">
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">

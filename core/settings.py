@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'storages',
     'tailwind',
+    'theme',
     'butterfly_landing_page',
     'accounts',
     'customers',
@@ -196,6 +197,9 @@ else:
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# django-tailwind: compiled CSS for the shop app (replaces the CDN).
+TAILWIND_APP_NAME = 'theme'
 
 # Shop manager
 LOGIN_URL = '/shop/login/'
