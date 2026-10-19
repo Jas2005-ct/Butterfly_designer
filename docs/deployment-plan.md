@@ -1,8 +1,30 @@
-# Deployment Plan — Butterfly Shop Manager
+# Deployment Plan - Butterfly Shop Manager
 
-> **Status:** PLANNING ONLY. No production database or AWS resource has been touched.
-> This document is the runbook for deploying to **AWS App Runner (ap-south-1, Mumbai)**
-> with **Supabase** for Postgres + object storage. Execution is on hold until you lift it.
+> **Status:** PLANNING EXECUTION. Code hardening is merged; no production database
+> or billable AWS service has been created yet.
+> This document is the runbook for deploying to **Amazon ECS Express Mode
+> (ap-south-1, Mumbai)** with **Supabase** for Postgres + object storage.
+
+---
+
+## 0. Platform decision: why not App Runner
+
+The original plan targeted **AWS App Runner**. That is no longer possible for this
+account:
+
+| Fact | Detail |
+|---|---|
+| App Runner availability | AWS closed App Runner to **new customers on April 30, 2026**. Existing customers may continue; no new features will ship. |
+| This account | The AWS account (id `558948635923`) was created **2026-10-16**, i.e. after the cutoff, so it is a new customer. |
+| Proof | `aws apprunner list-services --region ap-south-1` returns `SubscriptionRequiredException: The AWS Access Key Id needs a subscription for the service`. |
+| AWS's recommendation | **Amazon ECS Express Mode** - "a Fargate-based ECS service with a unique accessible URL" that provisions the ALB, TLS, autoscaling, security groups and CloudWatch logging for you. |
+
+**Consequence for the pipeline:** App Runner could build the image straight from a
+GitHub repo. Express Mode deploys an **image**, so the pipeline becomes:
+
+```
+git push -> GitHub Actions builds the image -> push to ECR -> ECS Express Mode pulls it
+```
 
 ---
 
@@ -10,40 +32,40 @@
 
 ```
                     Internet
-                       │
-             ┌─────────▼──────────┐
-             │  Custom domain      │  (optional; App Runner gives a
-             │  shop.example.com   │   *.awsapprunner.com URL first)
-             └─────────┬──────────┘
-                       │ HTTPS
-             ┌─────────▼──────────┐
-             │  AWS App Runner     │  region: ap-south-1 (Mumbai)
-             │  (Docker image)     │  runs: gunicorn core.wsgi
-             │  WhiteNoise → /static
-             └───────┬───────┬─────┘
-                     │       │
-        Postgres SSL │       │ S3-compatible HTTPS
-                     │       │
-        ┌────────────▼──┐ ┌──▼───────────────┐
-        │ Supabase DB    │ │ Supabase Storage  │
-        │ (DATABASE_URL) │ │ (boto3 / storages)│
-        └────────────────┘ └───────────────────┘
+                       |
+              +--------+---------+
+              |                  |
+   Custom domain (optional)   https://butterfly-designer.ecs.ap-south-1.on.aws
+              |                  |
+              +--------+---------+
+                       |  HTTPS (ALB terminates TLS)
+                       v
+              +-----------------------+
+              |  Amazon ECS Express   |   region: ap-south-1 (Mumbai)
+              |  Mode  (Fargate)      |   1 vCPU / 2 GB, min 1 - max 1 task
+              +-----------------------+
+                 |            |      |
+        WhiteNoise /static   |      |  S3-compatible HTTPS
+        gunicorn :8000       |      |
+                            |      v
+                  +---------+---------+      +------------------------+
+                  |  Supabase Postgres    |    |  Supabase Storage      |
+                  |  (pooled, port 6543)  |    |  bucket: butterfly...  |
+                  |  DATABASE_URL         |    |  boto3 / django-storages
+                  +-----------------------+    +------------------------+
 ```
 
-- **App Runner** builds straight from the GitHub repo (`Jas2005-ct/Butterfly_designer`) using the
-  existing `Dockerfile`. No image push to ECR required (though it's an option — see §8).
-- **App Runner → Supabase over public internet** with TLS. (Private VPC networking is a later
-  hardening step, not required to launch.)
-- **Static files** served by WhiteNoise from inside the container.
-- **Media files** (receipts/uploads) go to Supabase Storage via `django-storages` + `boto3`
-  (already wired in `core/settings.py`, triggered by the presence of `AWS_ACCESS_KEY_ID`).
-
-### ⚠️ Region / latency decision
-Supabase does **not** offer a Mumbai region; the nearest is **Singapore (`ap-southeast-1`)**.
-App Runner in Mumbai → Supabase in Singapore = roughly **40–70 ms** of extra DB round-trip per
-query. For a shop with ~90–200 active orders this is fine. If you later want minimum latency,
-either move App Runner to `ap-southeast-1` (colocate with Supabase) or use a Supabase
-dedicated region. **Decision needed before go-live** (see §9).
+- **Express Mode** creates the Fargate service, an internet-facing ALB with an
+  HTTPS listener, target group, security groups, autoscaling, a log group and a
+  5XX rollback alarm.
+- **Static files** are served by WhiteNoise from inside the container
+  (`collectstatic` runs at boot).
+- **Media files** go to Supabase Storage via `django-storages` + `boto3`
+  (activated by the presence of `AWS_ACCESS_KEY_ID` in `core/settings.py`).
+- **Region:** `ap-south-1` (Mumbai). The Supabase pooler host is
+  `aws-1-ap-south-1.pooler.supabase.com`, i.e. the Supabase project is in Mumbai
+  too, so the DB round-trip stays in-region. (An earlier draft assumed Supabase
+  was in Singapore - it is not.)
 
 ---
 
@@ -51,58 +73,55 @@ dedicated region. **Decision needed before go-live** (see §9).
 
 | Area | Status | Notes |
 |---|---|---|
-| `Dockerfile` | ✅ Ready | `python:3.11-slim`, installs `uv`, `uv sync --frozen`. |
-| `entrypoint.sh` | ⚠️ Review | Runs `collectstatic` → `migrate` → `gunicorn`. Migrate-on-boot has a multi-instance race (§6). |
-| WSGI (`core/wsgi.py`) | ✅ Ready | Standard. |
-| Static files | ✅ Ready | WhiteNoise + compiled Tailwind (no CDN). |
-| Media → Supabase S3 | ✅ Wired | Enabled when `AWS_ACCESS_KEY_ID` is set. |
-| DB routing | ✅ Ready | `DATABASE_URL` → Postgres; else SQLite (dev). |
-| **`SECRET_KEY`** | 🔴 Blocked | Hardcoded & insecure (`settings.py:29`). Must come from env. |
-| **`DEBUG` flag** | 🔴 Blocked | `DEBUG = 'RENDER' not in os.environ` (`:32`) → **DEBUG=True on App Runner** (no `RENDER` var). Must switch to a `DJANGO_DEBUG` env flag. |
-| **`ALLOWED_HOSTS`** | 🔴 Blocked | `['*']` (`:34`). Must pin to the App Runner domain(s). |
-| **`CSRF_TRUSTED_ORIGINS`** | 🔴 Blocked | Defaults to ngrok hosts (`:211`). Must set production origin. |
-| **Health endpoint** | 🔴 Missing | App Runner health check needs a lightweight `/healthz`. None exists. |
-| **Static storage conflict** | 🟡 Fix | `STATICFILES_STORAGE` (`:150`) uses *Manifest* backend, but `STORAGES["staticfiles"]` (`:182`,`:193`) uses *non-manifest*. These disagree — resolve to one. |
-| `.env` present | 🟡 Caution | Local `.env` exists; must **not** be baked into the image (verify `.dockerignore`). |
-| Migrations | ✅ Ready | All apps have migrations; `migrate` is idempotent. |
-
-**All 🔴 items must be fixed before the first deploy.** §4 gives the exact changes.
+| `Dockerfile` | OK. Ready | `python:3.11-slim`, installs `uv`, `uv sync --frozen`. |
+| `entrypoint.sh` | OK. Fixed | `collectstatic` + `gunicorn` only. `migrate` moved out to a one-off task (see 4.6). A `migrate` argument passthrough lets a task override run `manage.py migrate`. |
+| `.gitattributes` | OK. New | Forces LF for `*.sh` and `Dockerfile`. Without it, a Windows checkout with `core.autocrlf=true` bakes a CRLF `#!/bin/sh` into the image and the container dies with "exec format error". |
+| WSGI (`core/wsgi.py`) | OK. Ready | Standard. |
+| Static files | OK. Ready | WhiteNoise + compiled Tailwind (no CDN). One backend in both `STORAGES` branches, no manifest conflict. |
+| Media + Supabase S3 | OK. Wired | Enabled when `AWS_ACCESS_KEY_ID` is set. |
+| DB routing | OK. Ready | `DATABASE_URL` + Postgres; else SQLite (dev). |
+| `DJANGO_SECRET_KEY` | OK. Fixed | Env-driven; raises `ImproperlyConfigured` when missing (`core/settings.py:36`). |
+| `DJANGO_DEBUG` | OK. Fixed | Env-driven, default `false` (`core/settings.py:31`). |
+| `ALLOWED_HOSTS` | OK. Fixed | Env-driven, comma separated (`core/settings.py:50`). |
+| `CSRF_TRUSTED_ORIGINS` | OK. Fixed | Env-driven, comma separated (`core/settings.py:232`). |
+| Health endpoint | OK. Ready | `GET /healthz` -> `{"status":"ok"}`, no DB hit (`core/urls.py:26`, `core/views.py:6`). |
+| `SECURE_PROXY_SSL_HEADER` | OK. Ready | Trusts `X-Forwarded-Proto`, so `request.is_secure()` is correct behind the ALB. |
+| `.dockerignore` | OK. Ready | Excludes `.env`, `.venv`, `.git`, `staticfiles/`, `media/`. |
+| Migrations | OK. Ready | Run as a one-off task, not on boot. |
 
 ---
 
 ## 3. Prerequisites (one-time setup)
 
-1. **AWS account** with an IAM user/role that can manage App Runner.
+1. **AWS account** `558948635923` with an IAM user/role that can create ECR
+   repositories and ECS Express services.
 2. **Supabase project** with:
-   - a Postgres connection string (use the **pooled** connection string for serverless),
-   - a Storage bucket (e.g. `butterflydesinger`) set to the correct visibility,
-   - an S3-compatible access key + secret (Supabase Dashboard → Storage → S3 settings).
-3. **(Optional) Custom domain** + its DNS (CNAME to the App Runner URL).
-4. Decide the **region** (Mumbai default; see §1 latency note).
+   - a Postgres connection string (use the **pooled** string, port 6543),
+   - a Storage bucket (`butterflydesinger`) with the right visibility,
+   - an S3-compatible access key + secret
+     (Supabase Dashboard -> Storage -> S3 settings).
+3. **ECR repository** `butterfly-designer` in `ap-south-1`.
+4. **GitHub OIDC role** so CI can deploy without long-lived AWS keys.
+5. **(Optional) Custom domain** + DNS.
 
 ---
 
-## 4. Pre-deployment hardening (code changes required)
+## 4. Pre-deployment hardening (done)
 
-Make these on a branch, test locally (SQLite + a staging Postgres), then merge to
-`developement` before wiring App Runner.
-
-### 4.1 `core/settings.py` — secret key & debug
-Replace the hardcoded key and the `RENDER`-based DEBUG with env-driven values:
+### 4.1 `core/settings.py` - secret key and debug
+Env-driven, fail closed:
 
 ```python
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
-if not SECRET_KEY:
-    raise ImproperlyConfigured("DJANGO_SECRET_KEY env var is required in production")
-
-# DEBUG only when explicitly enabled; safe default = off.
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() in ("1", "true", "yes")
+
+_secret = os.environ.get("DJANGO_SECRET_KEY") or os.environ.get("SECRET_KEY")
+if not _secret:
+    raise ImproperlyConfigured("Set DJANGO_SECRET_KEY (or SECRET_KEY) in the environment for production.")
 ```
 
-- Keep the dev fallback **out** of prod: run locally with `DJANGO_DEBUG=true`.
-- Generate the key once: `python -c "from django.core.management.utils import get_random_secret_key as g; print(g())"`.
+Generate a key once: `python -c "from django.core.management.utils import get_random_secret_key as g; print(g())"`.
 
-### 4.2 `core/settings.py` — allowed hosts & CSRF
+### 4.2 `core/settings.py` - allowed hosts and CSRF
 ```python
 ALLOWED_HOSTS = [
     h.strip()
@@ -116,160 +135,226 @@ CSRF_TRUSTED_ORIGINS = [
     if o.strip()
 ]
 ```
-- In production set `ALLOWED_HOSTS=shop.example.com,<service-id>.awsapprunner.com`
-  and `CSRF_TRUSTED_ORIGINS=https://shop.example.com`.
+In production:
+`ALLOWED_HOSTS=butterfly-designer.ecs.ap-south-1.on.aws`
+`CSRF_TRUSTED_ORIGINS=https://butterfly-designer.ecs.ap-south-1.on.aws`
 
-### 4.3 Static storage — pick one backend
-Delete the legacy `STATICFILES_STORAGE` line (`:150`) and keep the modern `STORAGES` dict.
-Use the **manifest** backend in production for cache-busting:
+### 4.3 Static storage
+One backend in both branches of `STORAGES`:
+`whitenoise.storage.CompressedStaticFilesStorage` (non-manifest), so
+`collectstatic` cannot fail with `ManifestMissingFileError`.
 
-```python
-STORAGES = {
-    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-    },
-}
+### 4.4 Health endpoint
+`core/views.py` returns `JsonResponse({"status": "ok"})` without touching the
+database, so the ALB health check stays fast and does not fail while the schema
+is still being migrated.
+
+### 4.5 `.dockerignore` and `.gitattributes`
+`.dockerignore` keeps `.env` and `.venv` out of the image.
+`.gitattributes` keeps `*.sh` and `Dockerfile` LF-only so the container
+entrypoint is executable on Linux.
+
+### 4.6 `entrypoint.sh` - migrations are a one-off task
+`migrate` was removed from the boot path. Express Mode performs **canary
+deployments** (5% -> 100%), so two containers can start simultaneously; running
+DDL from both can corrupt a migration. Migrations now run as a single dedicated
+ECS task (see 6.4) before traffic is switched.
+
+The entrypoint keeps a passthrough so a task override reaches Django:
+
+```sh
+if [ "$#" -gt 0 ] && [ "$1" = "migrate" ]; then
+    exec python manage.py "$@"
+fi
 ```
-(Match the `staticfiles` entry in **both** the Supabase and local branches so behaviour is identical.)
-
-### 4.4 Add a health endpoint
-`core/views.py`:
-```python
-from django.http import JsonResponse
-
-def healthz(request):
-    """Lightweight liveness check for the App Runner health probe.
-
-    Args:
-        request: The current HttpRequest.
-
-    Returns:
-        HttpResponse: 200 JSON {"status": "ok"} — no DB hit, so it stays fast
-        and does not fail during migrations.
-    """
-    return JsonResponse({"status": "ok"})
-```
-`core/urls.py`: `path("healthz", core_views.healthz, name="healthz")`.
-
-### 4.5 `.dockerignore`
-Ensure it contains at least:
-```
-.env
-.venv
-__pycache__/
-*.pyc
-db.sqlite3
-media/
-staticfiles/
-.git
-```
-> `media/` is ignored (files live in Supabase Storage, not the image).
-> `static/` is **NOT** ignored (compiled Tailwind + vendored HTMX must ship in the image).
-
-### 4.6 `entrypoint.sh` — migrate-on-boot
-Current script runs `migrate` on **every** boot. With App Runner auto-scaling >1 instance,
-concurrent `migrate` can collide. Choose one (see §6):
-- **A (simple):** keep `migrate` in the entrypoint and cap App Runner to **1 instance** at launch.
-- **B (robust):** remove `migrate` from the entrypoint and run it as a one-off deploy step
-  (`aws apprunner ...` or a CI step) so only one process migrates.
-
-**Recommendation:** start with **A** for launch, move to **B** when you add CI.
 
 ---
 
-## 5. Environment variables (App Runner service config)
+## 5. Environment variables (Express service config)
 
-Set these in the App Runner service → **Environment variables** (never commit them):
+Set these on the Express service -> **Container environment variables** (never
+commit them):
 
-| Key | Example / source | Required |
+| Key | Value | Required |
 |---|---|---|
-| `DJANGO_SECRET_KEY` | *(generated, §4.1)* | ✅ |
-| `DJANGO_DEBUG` | `false` | ✅ |
-| `ALLOWED_HOSTS` | `shop.example.com,<id>.awsapprunner.com` | ✅ |
-| `CSRF_TRUSTED_ORIGINS` | `https://shop.example.com` | ✅ |
-| `DATABASE_URL` | `postgres://...@db.<ref>.supabase.co:5432/postgres?sslmode=require` (pooled) | ✅ |
-| `AWS_ACCESS_KEY_ID` | *(Supabase S3 key)* | ✅ (enables media→S3) |
-| `AWS_SECRET_ACCESS_KEY` | *(Supabase S3 secret)* | ✅ |
-| `AWS_STORAGE_BUCKET_NAME` | `butterflydesinger` | ✅ |
-| `AWS_S3_ENDPOINT_URL` | `https://<ref>.storage.supabase.co` | ✅ |
-| `AWS_S3_REGION_NAME` | `ap-southeast-1` | ✅ |
+| `DJANGO_SECRET_KEY` | *(generated, 4.1)* | yes |
+| `DJANGO_DEBUG` | `false` | yes |
+| `ALLOWED_HOSTS` | `butterfly-designer.ecs.ap-south-1.on.aws` | yes |
+| `CSRF_TRUSTED_ORIGINS` | `https://butterfly-designer.ecs.ap-south-1.on.aws` | yes |
+| `DATABASE_URL` | `postgresql://postgres.<ref>:<pw>@aws-1-ap-south-1.pooler.supabase.com:6543/postgres` | yes |
+| `AWS_ACCESS_KEY_ID` | *(Supabase S3 key)* | yes (enables media -> S3) |
+| `AWS_SECRET_ACCESS_KEY` | *(Supabase S3 secret)* | yes |
+| `AWS_STORAGE_BUCKET_NAME` | `butterflydesinger` | yes |
+| `AWS_S3_ENDPOINT_URL` | `https://<ref>.storage.supabase.co/storage/v1/s3` | yes |
+| `AWS_S3_REGION_NAME` | `ap-south-1` | yes |
 
-> **Never** use the production `DATABASE_URL` for local testing. Local tests already switch to
-> SQLite when `test` is in `argv`; for manual dev use the local Postgres DB from `docker-compose.yml`.
+Notes:
+
+- `ALLOWED_HOSTS` takes a **host only** (no scheme); `CSRF_TRUSTED_ORIGINS`
+  takes a **full origin** (with `https://`). The ALB health check sends the
+  service domain as the `Host` header, so it must be in `ALLOWED_HOSTS`.
+- `AWS_S3_ENDPOINT_URL` must be the **full** S3 API path
+  (`.../storage/v1/s3`), not the bare project domain - boto3 needs the path.
+- `AWS_S3_REGION_NAME` must match the Supabase project region
+  (`ap-south-1`). `core/settings.py` would otherwise default to `us-east-1`.
+- Use the **pooler host**. The direct `db.<ref>.supabase.co` endpoint is
+  IPv6-only and Fargate has no IPv6 egress. Port 6543 is safe here because the
+  project uses psycopg2, which binds parameters client-side and does not use
+  server-side prepared statements (PgBouncer transaction mode would break
+  psycopg3).
+- Never use the production `DATABASE_URL` for local testing.
 
 ---
 
-## 6. Deployment runbook (App Runner)
+## 6. Deployment runbook (ECS Express Mode)
 
-1. **Push the hardened code** to `developement`, then merge → `master` (release branch).
-   - App Runner watches `master` (or a tagged release) so it doesn't rebuild on WIP branches.
-2. **Create the service** in the AWS console (ap-south-1):
-   - Source: **GitHub** → repo `Jas2005-ct/Butterfly_designer`, branch `master`.
-   - Build: **Dockerfile** (auto-detected). No custom build command.
-   - Runtime: **CPU 1 vCPU / 2 GB** to start (enough for collectstatic + migrate + gunicorn).
-   - Port: **8000** (entrypoint honours `${PORT:-8000}`; App Runner injects `PORT`, so 8000 is fine).
-   - Health check: **HTTP**, path **`/healthz`**, interval 10 s (from §4.4).
-   - Autoscaling: **min 1 / max 2** to start (keeps migrate-on-boot safe under §4.6-A).
-3. **Add the environment variables** from §5.
-4. **Deploy.** App Runner builds the image and runs `entrypoint.sh`
-   (`collectstatic` → `migrate` → `gunicorn`).
-5. **First-run data:**
-   - Create a superuser via a one-off command, e.g. App Runner/CI:
-     `python manage.py createsuperuser` — **or** promote an existing row.
-   - Do **not** run `loaddata`/dummy-data commands in production (volume kit stays in `stash@{0}`).
-6. **Verify** (§7).
-7. **Attach custom domain** (optional): App Runner → Custom domains → add CNAME.
+### 6.1 IAM roles for the service
+Express Mode needs two roles. The console creates them for you; the CLI does not.
+
+```powershell
+aws iam create-role --role-name ecsTaskExecutionRole --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+aws iam create-role --role-name ecsInfrastructureRoleForExpressServices --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+aws iam attach-role-policy --role-name ecsTaskExecutionRole --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+aws iam attach-role-policy --role-name ecsInfrastructureRoleForExpressServices --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices
+```
+
+Wait ~1 minute for IAM propagation before creating the service.
+
+### 6.2 ECR repository
+```powershell
+aws ecr create-repository --repository-name butterfly-designer --region ap-south-1
+```
+
+### 6.3 Build and push the image
+Local (good for learning):
+```powershell
+docker build -t 558948635923.dkr.ecr.ap-south-1.amazonaws.com/butterfly-designer:latest .
+aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 558948635923.dkr.ecr.ap-south-1.amazonaws.com
+docker push 558948635923.dkr.ecr.ap-south-1.amazonaws.com/butterfly-designer:latest
+```
+
+CI (what you will actually use): `.github/workflows/build.yml` builds and pushes
+on every push to `master` using GitHub OIDC - no AWS keys in GitHub secrets.
+`.github/workflows/deploy.yml` updates the running service (manual dispatch).
+
+### 6.4 Create the Express service
+Console: ECS console -> **Express services** -> Create express service -> name
+`butterfly-designer` -> image `558948635923.dkr.ecr.ap-south-1.amazonaws.com/butterfly-designer:latest`
+-> port 8000 -> CPU 1 vCPU / memory 2 GB -> health check path `/healthz` ->
+environment variables (section 5) -> scaling min 1 / max 1 -> Create.
+
+CLI:
+```powershell
+aws ecs create-express-gateway-service `
+  --region ap-south-1 `
+  --service-name butterfly-designer `
+  --primary-container "image=558948635923.dkr.ecr.ap-south-1.amazonaws.com/butterfly-designer:latest,containerPort=8000,environment=[...]" `
+  --execution-role-arn arn:aws:iam::558948635923:role/ecsTaskExecutionRole `
+  --infrastructure-role-arn arn:aws:iam::558948635923:role/ecsInfrastructureRoleForExpressServices `
+  --health-check-path /healthz `
+  --cpu 1024 --memory 2048 `
+  --scaling-target minTaskCount=1,maxTaskCount=1 `
+  --monitor-resources
+```
+
+`--cpu 1024` = 1 vCPU, `--memory 2048` = 2 GB.
+
+Prefer Secrets Manager over plain environment values: switch the container
+`environment` entries to `secrets=[{name=DJANGO_SECRET_KEY,valueFrom=arn:aws:secretsmanager:...}]`.
+
+### 6.5 Run migrations as a one-off task
+```powershell
+$svc = aws ecs describe-services --cluster default --services butterfly-designer --region ap-south-1 --output json | ConvertFrom-Json
+$td  = $svc.services[0].taskDefinition
+$sg  = $svc.services[0].securityGroups[0]
+$sub = @("subnet-0dcb582aab2b0200f","subnet-0c3224681fe6f4964","subnet-00c09a8f2fdfdf3ed")
+
+$task = aws ecs run-task --cluster default --task-definition $td --launch-type FARGATE --region ap-south-1 `
+  --network-configuration "awsvpcConfiguration={subnets=[$($sub -join ',')],assignPublicIp=ENABLED,securityGroups=[$sg]}" `
+  --overrides '{"containerOverrides":[{"name":"Main","command":["migrate","--noinput"]}]}' --output json
+
+aws ecs describe-tasks --tasks $task.tasks[0].taskArn --region ap-south-1 --query "tasks[0].[lastStatus,stopCode,stoppedReason]"
+```
+
+Success = `STOPPED` with the container `exitCode` 0. The container name is
+`Main`; confirm with
+`aws ecs describe-task-definition --task-definition $td --query "taskDefinition.containerDefinitions[].name"`.
+
+Console: Clusters -> Default cluster -> **Tasks** -> *Run new task* -> pick the
+service's task definition -> networking (3 subnets + service security group) ->
+**Override** -> container `Main` -> Command `migrate --noinput` -> Run.
+
+### 6.6 Create a superuser
+```powershell
+$env:DATABASE_URL="postgresql://postgres.<ref>:<pw>@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
+python manage.py createsuperuser
+```
+(or promote an existing row; do **not** run `loaddata` in production).
+
+### 6.7 Deploy order for later releases
+1. Push to `master` -> CI builds and pushes a new image to ECR.
+2. Run the migration one-off task against the **new** image.
+3. Update the service to the new image (canary).
+4. Verify.
+
+Doing migrations first means the canary never serves a schema-mismatched app.
 
 ---
 
 ## 7. Post-deploy verification checklist
 
-- [ ] `GET https://<service>/healthz` → `200 {"status":"ok"}`.
-- [ ] Landing page loads over HTTPS (no mixed-content / insecure warnings).
-- [ ] `/shop/login/` accepts a login POST (proves `CSRF_TRUSTED_ORIGINS` is correct).
-- [ ] Board renders with real data; **DEBUG is off** (no debug 500 pages, no `django-debug` toolbar).
-- [ ] Static assets: page source references `/static/...` and files return 200 (WhiteNoise + manifest OK).
-- [ ] Upload a file (receipt/image) → it lands in **Supabase Storage**, not the container.
-- [ ] `collectstatic` ran without `ManifestMissingFileError` (would indicate the §4.3 conflict).
-- [ ] Migrations applied exactly once (check App Runner logs for a single `Applying ...` run).
-- [ ] Logs free of `DisallowedHost`, `CSRF verification failed`, `InsecureResponse`.
+- [ ] `GET https://butterfly-designer.ecs.ap-south-1.on.aws/healthz` -> `200 {"status":"ok"}`
+- [ ] Landing page loads over HTTPS (no mixed-content warnings).
+- [ ] `/shop/login/` renders and accepts a login POST (proves `CSRF_TRUSTED_ORIGINS`).
+- [ ] Board renders with real data; DEBUG is off (no debug 500 pages).
+- [ ] Static assets return 200 (WhiteNoise + `collectstatic` OK).
+- [ ] Uploading a file lands in **Supabase Storage**, not the container.
+- [ ] Migrations applied exactly once (one `Applying ...` run in the task logs).
+- [ ] CloudWatch logs free of `DisallowedHost`, `CSRF verification failed`, `InsecureResponse`.
 
 ---
 
-## 8. CI/CD & rollbacks
+## 8. CI/CD and rollbacks
 
-- **CI (recommended, later):** GitHub Actions → on push to `master`: run the test suite
-  (SQLite), build the Docker image, then let App Runner rebuild from `master`.
-- **Rollback:** App Runner keeps prior deployments — **Rollback** to the previous revision in
-  the console. Because DB migrations are forward-only, avoid irreversible schema changes in a
-  single release; prefer additive migrations so a code rollback is safe.
-- **ECR alternative:** build → push to ECR → point App Runner at the image instead of building
-  from source. Faster cold builds once the repo grows.
-
----
-
-## 9. Open decisions (need your call before go-live)
-
-1. **Region:** App Runner **Mumbai (ap-south-1)** with ~50 ms cross-region DB latency to
-   Supabase Singapore — **or** colocate both in `ap-southeast-1` for lowest latency?
-2. **Domain:** use the `*.awsapprunner.com` URL for launch, or attach a custom domain now?
-3. **Instances:** launch at **min 1 / max 1** (safe for migrate-on-boot) or **min 1 / max 2**
-   with migrations moved out of the entrypoint (§4.6-B)?
-4. **Media bucket visibility:** keep the Supabase bucket **public-read** (current
-   `AWS_QUERYSTRING_AUTH=False`) — fine for receipts, but confirm nothing private is uploaded.
-5. **Secrets store:** put `DJANGO_SECRET_KEY` + DB/S3 credentials directly in App Runner env now,
-   or adopt AWS Secrets Manager / SSM from day one?
+- **CI:** `.github/workflows/build.yml` (push to `master` -> build -> ECR) and
+  `.github/workflows/deploy.yml` (manual -> update the Express service).
+  GitHub authenticates to AWS with **OIDC**, so no access keys are stored in
+  GitHub.
+- **Rollback:** the previous image tag stays in ECR. Re-deploy the older tag
+  (or update the service to the previous task definition revision). Migrations
+  are forward-only, so prefer additive migrations so a code rollback is safe.
 
 ---
 
-## 10. What I will NOT do without your go-ahead
+## 9. Cost estimate
 
-- Run any migration or write against the **production** Supabase DB.
-- Create/modify AWS resources or spend money.
-- Merge `master` or trigger a live rebuild.
-- Enable anything that was explicitly deferred (e.g. WhatsApp notifications — see
-  `docs/whatsapp-blueprint.md`).
+| Item | Monthly (ap-south-1) |
+|---|---|
+| Fargate 1 vCPU / 2 GB, always on | ~$36 |
+| Application Load Balancer | ~$18 |
+| CloudWatch Logs, ECR storage, data transfer | ~$1-5 |
+| **Total** | **~$55-60** |
 
-**Next step:** say **"apply hardening"** to start §4 on a branch (code-only, safe, testable
-locally), or **"deploy"** once you've lifted the hold and answered §9.
+App Runner was cheaper (~$25-40) but is closed to new customers. If this cost
+is a problem, Google Cloud Run's free tier, Render or Fly.io are materially
+cheaper for a shop of this size - the Dockerfile and entrypoint work unchanged
+on all three.
+
+---
+
+## 10. Open decisions
+
+1. **Custom domain:** launch on `*.ecs.ap-south-1.on.aws` first, or attach one now?
+2. **Scaling:** keep min 1 / max 1 while migrations live in a one-off task, or
+   raise the max once CI is proven?
+3. **Secrets:** plain environment variables for launch, or Secrets Manager from
+   day one?
+4. **Media bucket visibility:** `AWS_QUERYSTRING_AUTH=False` means the bucket is
+   public-read - fine for receipts, confirm nothing private is uploaded.
+
+---
+
+## 11. Not done without explicit approval
+
+- Running any migration or write against the production Supabase database.
+- Creating billable AWS resources (Express service, ALB, Fargate tasks).
