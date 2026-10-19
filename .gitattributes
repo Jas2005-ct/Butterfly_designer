@@ -1,0 +1,17 @@
+# Normalize line endings so container builds are reproducible.
+#
+# `text=auto` lets git detect text files and store them with LF in the repo.
+# The explicit `eol=lf` entries force LF in the working tree as well, which
+# matters on Windows checkouts (core.autocrlf=true by default).
+#
+# A CRLF shebang (#!/bin/sh\r) makes the Linux container fail to start with
+# "exec format error", so shell scripts and the Dockerfile must stay LF.
+* text=auto
+
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf

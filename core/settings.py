@@ -25,13 +25,33 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-#1-*&yuob+2&csnp@co^yetmcfpja#uy0j&yx5qzb*+tzhcibe'
+# --- Production-safe configuration (all driven by env vars) ---
+# DEBUG defaults OFF so an unset flag in production can never leak stack
+# traces. Run locally with DJANGO_DEBUG=true (see .env / .env.example).
+DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() in ("1", "true", "yes")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = 'RENDER' not in os.environ
+# SECRET_KEY must come from the environment in production. Accept
+# DJANGO_SECRET_KEY (canonical) or SECRET_KEY (matches local .env), and fail
+# closed when DEBUG is off and no key is supplied.
+_secret = os.environ.get("DJANGO_SECRET_KEY") or os.environ.get("SECRET_KEY")
+if _secret:
+    SECRET_KEY = _secret
+elif DEBUG:
+    from django.core.management.utils import get_random_secret_key
+    SECRET_KEY = get_random_secret_key()  # dev-only; regenerates each run
+else:
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        "Set DJANGO_SECRET_KEY (or SECRET_KEY) in the environment for production."
+    )
 
-ALLOWED_HOSTS = ['*']
+# Fail closed: localhost only by default. Production overrides this with the
+# App Runner / custom domain (comma-separated) via the ALLOWED_HOSTS env var.
+ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+    if h.strip()
+]
 
 INTERNAL_IPS = [
     "127.0.0.1",
@@ -146,8 +166,9 @@ STATICFILES_DIRS = [
     BASE_DIR / 'static',
 ]
 
-# Enable WhiteNoise's GZip compression of static assets without strict manifest crashes.
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# Static + media backends are configured via the STORAGES dict below
+# (single source of truth; the legacy STATICFILES_STORAGE setting is removed
+# so the manifest and non-manifest backends can no longer disagree).
 # --- SUPABASE STORAGE CONFIGURATION ---
 MEDIA_ROOT = BASE_DIR / 'media'
 USE_SUPABASE = os.environ.get('AWS_ACCESS_KEY_ID') is not None
