@@ -1,7 +1,7 @@
 # Deployment Plan - Butterfly Shop Manager
 
-> **Status:** PLANNING EXECUTION. Code hardening is merged; no production database
-> or billable AWS service has been created yet.
+> **Status:** CODE MERGED, AWS PREP DONE. No production database write and no
+> billable compute (no Express service, no ALB, no Fargate task) exists yet.
 > This document is the runbook for deploying to **Amazon ECS Express Mode
 > (ap-south-1, Mumbai)** with **Supabase** for Postgres + object storage.
 
@@ -100,9 +100,12 @@ git push -> GitHub Actions builds the image -> push to ECR -> ECS Express Mode p
    - a Storage bucket (`butterflydesinger`) with the right visibility,
    - an S3-compatible access key + secret
      (Supabase Dashboard -> Storage -> S3 settings).
-3. **ECR repository** `butterfly-designer` in `ap-south-1`.
-4. **GitHub OIDC role** so CI can deploy without long-lived AWS keys.
-5. **(Optional) Custom domain** + DNS.
+3. **ECR repository** `butterfly-designer` in `ap-south-1`. - *created*
+4. **GitHub OIDC role** `github-actions-deploy` so CI can deploy without
+   long-lived AWS keys. - *created*
+5. **ECS service roles** `ecsTaskExecutionRole` and
+   `ecsInfrastructureRoleForExpressServices`. - *created*
+6. **(Optional) Custom domain** + DNS.
 
 ---
 
