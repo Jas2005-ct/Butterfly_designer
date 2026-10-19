@@ -12,8 +12,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency management
+# Pin the install directory explicitly: the installer used to default to
+# /root/.cargo/bin but now defaults to /root/.local/bin, and a mismatched
+# PATH entry made `uv sync` fail with "uv: not found".
+ENV UV_INSTALL_DIR=/opt/uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.cargo/bin:$PATH"
+ENV PATH="/opt/uv:$PATH"
 
 # Copy dependency lock files first to leverage Docker's layer cache
 COPY pyproject.toml uv.lock ./
