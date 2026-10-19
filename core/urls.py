@@ -19,7 +19,11 @@ from django.urls import path,include
 from django.conf import settings
 from django.conf.urls.static import static
 
+from . import views as core_views
+
 urlpatterns = [
+    # Deployment liveness probe (App Runner health check).
+    path("healthz", core_views.healthz, name="healthz"),
     path('admin/', admin.site.urls),
     path("", include("butterfly_landing_page.urls")),
     path("shop/", include("accounts.urls")),

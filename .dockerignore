@@ -14,3 +14,4 @@ media/
 .uv
 .cache
 node_modules/
+staticfiles/

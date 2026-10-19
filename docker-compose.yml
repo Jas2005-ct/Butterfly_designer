@@ -22,7 +22,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DEBUG=1
+      - DJANGO_DEBUG=true
       - DATABASE_URL=postgres://butterfly_user:butterfly_pass@db:5432/butterfly_db
     depends_on:
       db:
