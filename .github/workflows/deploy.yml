@@ -10,9 +10,8 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Image tag to deploy (default: latest)"
-        required: false
-        default: "latest"
+        description: "Image tag to deploy - use the commit SHA of the release, e.g. a7c2941aa02d295d3a1751eec3594e4c33824968. Not 'latest': that tag moves with every merge."
+        required: true
 
 permissions:
   id-token: write
@@ -31,6 +30,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Refuse a moving tag
+        run: |
+          if [ "${{ inputs.image_tag }}" = "latest" ]; then
+            echo "::error::Refusing to deploy the moving 'latest' tag. Pass the commit SHA of the release you intend to ship - it is the only tag that identifies one specific build."
+            exit 1
+          fi
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4

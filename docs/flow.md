@@ -260,6 +260,94 @@ Check it landed with:
 gh auth status | Select-String "Token scopes"   # must contain 'workflow'
 ```
 
+### 2.5 Release control
+
+Merging to `master` **builds** an image. It does **not** deploy it. The
+release is a separate, deliberate act.
+
+#### What is a SHA?
+
+**SHA = Secure Hash Algorithm** — a 40-character fingerprint of a piece of
+content, here a git commit. `a7c2941aa02d295d3a1751eec3594e4c33824968` is the
+SHA of the current `master` commit.
+
+It matters for three reasons:
+
+| Where | What the SHA identifies |
+|---|---|
+| **git** | exactly one commit. `git log`, `git show <sha>`, `git checkout <sha>` |
+| **ECR** | exactly one image build. `build.yml` pushes the image twice: as `latest` **and** as `<commit-sha>` |
+| **the deploy** | exactly one artifact going live, and the one you roll back to |
+
+A tag like `latest` is a **moving pointer** — it means "whatever was built
+last", which changes with every merge. A SHA is a **fixed address**. That is
+the whole difference, and it is why you deploy a SHA:
+
+```
+latest  ->  "the newest thing someone pushed"   (ambiguous, changes under you)
+23397a31...  ->  "the image built from commit 23397a31"  (permanent, provable)
+```
+
+The image digest (`sha256:de637c9e...`) is the same idea one level down: it
+fingerprints the image **bytes** rather than the source, so it is still exact
+even if the tag is moved. Deploying by digest is the strictest form:
+
+```powershell
+--primary-container image=558948635923.dkr.ecr.ap-south-1.amazonaws.com/butterfly-designer@sha256:de637c9e...
+```
+
+#### The ruleset on `master` (`Merge_deploy`)
+
+| Rule | Effect |
+|---|---|
+| `deletion` | the branch cannot be deleted |
+| `non_fast_forward` | no force-push — history is append-only |
+| `pull_request` | every change arrives through a PR; **no direct pushes** |
+| `required_status_checks` | the `Django test suite` check must pass before merging |
+| `required_review_thread_resolution` | resolve all review conversations first |
+
+Two settings exist for a reason:
+
+* **`required_approving_review_count: 0`** — a single-owner repository cannot
+  satisfy a count of 1, because GitHub does not let you approve your own pull
+  request. The PR requirement is kept; the approval requirement is not.
+* **`bypass_mode: pull_request`** — the owner can merge without waiting for
+  an approval, but still **through a PR**. With `always`, a bypass actor could
+  push straight to `master` and the ruleset would be decorative.
+
+The ruleset targets `~DEFAULT_BRANCH`, which for this repository is
+`master`.
+
+#### Shipping several features together
+
+```
+feature-A ──┐
+feature-B ──┼──► developement ──(one merge, when you choose)──► master
+feature-C ──┘        │                                              │
+                     │ every PR tested by tests.yml                 │ build.yml
+                     └──────────────────────────────────────────────┘ builds ONE
+                                                                           image from
+                                                                           that commit
+```
+
+`master` stays frozen while you accumulate features. When you are ready,
+merge `developement` → `master` **once**: one image, one canary, all three
+features live together. Each feature branch also produced its own SHA-tagged
+image, so they can be shipped one at a time instead if you prefer.
+
+#### The release step
+
+```powershell
+# what images exist, and which SHA each one is
+aws ecr list-images --repository-name butterfly-designer --region ap-south-1
+
+# release the one you want
+gh workflow run deploy.yml --ref master -f image_tag=a7c2941aa02d295d3a1751eec3594e4c33824968
+```
+
+`deploy.yml` **refuses** the tag `latest` outright, because a moving tag is
+not a release decision.
+
 ---
 
 ## Part 3 — Identities and credentials
