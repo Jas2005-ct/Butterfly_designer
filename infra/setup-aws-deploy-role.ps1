@@ -106,5 +106,16 @@ if (aws iam get-role --role-name $infraRole 2>$null) {
     Write-Ok "$infraRole created"
 }
 
+# The AWS-managed infrastructure policy does not grant everything Express
+# Mode calls (ec2:DescribeAccountAttributes, ecs:DescribeServices,
+# ecs:UpdateService, cloudwatch:DescribeAlarms, iam:PassRole). Without these
+# the ALB creation fails with a masked "An unknown error occurred".
+Write-Step "Attaching express-mode-extra to $infraRole"
+aws iam put-role-policy `
+    --role-name $infraRole `
+    --policy-name express-mode-extra `
+    --policy-document (Get-Content (Join-Path $here 'express-mode-extra-policy.json') -Raw) | Out-Null
+Write-Ok "inline policy 'express-mode-extra' attached"
+
 Write-Host "`nDone. IAM needs ~1 minute to propagate before CI can assume the role." -ForegroundColor Green
 Write-Host "Next: build and push the image, then create the Express service (docs/deployment-plan.md section 6)." -ForegroundColor Green

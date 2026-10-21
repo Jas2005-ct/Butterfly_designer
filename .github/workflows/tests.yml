@@ -1,0 +1,48 @@
+name: Tests
+
+# Quality gate for every change. The suite is Django's own test runner
+# (110 tests), so it needs no extra dependency - only uv and the lockfile.
+
+on:
+  pull_request:
+    branches: [developement, master]
+  push:
+    branches: [developement]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Django test suite
+    runs-on: ubuntu-latest
+    env:
+      # DATABASE_URL is deliberately empty: core/settings.py falls back to
+      # SQLite when it is unset, so the suite needs no database service.
+      # A dummy key is required because settings.py fails closed when
+      # DJANGO_SECRET_KEY is missing.
+      DATABASE_URL: ""
+      DJANGO_SECRET_KEY: ci-only-not-a-secret
+      DJANGO_DEBUG: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.7"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Django system check
+        run: uv run --frozen python manage.py check
+
+      - name: Run tests
+        run: uv run --frozen python manage.py test

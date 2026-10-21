@@ -1,0 +1,49 @@
+name: Deploy to ECS Express Mode
+
+# Updates the running Express Mode service to an image in ECR.
+#
+# NOTE: the container environment variables (DATABASE_URL, DJANGO_SECRET_KEY,
+# S3 credentials, ...) are configured on the service itself and are
+# deliberately NOT set here, so a redeploy cannot overwrite them.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (default: latest)"
+        required: false
+        default: "latest"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ACCOUNT_ID: "558948635923"
+  ECR_REPOSITORY: butterfly-designer
+  SERVICE_NAME: butterfly-designer
+
+jobs:
+  deploy:
+    name: Update the Express service
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.ACCOUNT_ID }}:role/github-actions-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy Express service
+        uses: aws-actions/amazon-ecs-deploy-express-service@v1
+        with:
+          service-name: ${{ env.SERVICE_NAME }}
+          image: ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ inputs.image_tag }}
+          execution-role-arn: arn:aws:iam::${{ env.ACCOUNT_ID }}:role/ecsTaskExecutionRole
+          infrastructure-role-arn: arn:aws:iam::${{ env.ACCOUNT_ID }}:role/ecsInfrastructureRoleForExpressServices
+          container-port: 8000
+          health-check-path: /healthz
