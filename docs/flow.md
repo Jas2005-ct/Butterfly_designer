@@ -1,0 +1,379 @@
+# Deployment Flow
+
+How a code change in this repo becomes a running application on AWS.
+
+Two flows are documented here:
+
+| Part | Flow | Status |
+|---|---|---|
+| [1](#part-1--current-flow-manual) | **Current** — build and publish by hand, release by hand | ✅ working today |
+| [2](#part-2--github-actions-flow) | **GitHub Actions flow** — CI builds and publishes on merge, release stays a deliberate step | ✅ enabled |
+
+Everything below reflects the real state of account `558948635923` in region
+`ap-south-1` (Mumbai) as of 2026-10-21.
+
+---
+
+## Part 0 — The shape of it
+
+Three steps, always:
+
+```
+1. build   : source code  ->  container image
+2. publish : image        ->  ECR (private registry)
+3. release : ECR          ->  running Fargate task
+```
+
+Steps 1–2 produce an **artifact**. Step 3 is a **decision**. That split is the
+reason the build and the deploy are separate workflows: a broken build must
+never reach production, and a rollback should be one deliberate action.
+
+**A new image sitting in ECR does not change the running service.** ECS pulls
+the image only when a task starts, so the release step is what actually moves
+traffic.
+
+---
+
+## Part 1 — Current flow (manual)
+
+### 1.1 The pipeline
+
+```
+┌─ YOUR MACHINE ─────────────────────────────────────────────┐
+│                                                             │
+│  1. edit code                                               │
+│     core/middleware.py, core/settings.py                    │
+│            │                                                │
+│  2. git commit  →  3. git push origin master                │
+│     (gh token, scope "repo")                                │
+└────────────┼────────────────────────────────────────────────┘
+             │
+             ▼
+┌─ GITHUB ───────────────────────────────────────────────────┐
+│  master = a9d1067 (+ your commit)                           │
+│                                                             │
+│  ⚠ NOTHING HAPPENS HERE unless the workflows are committed. │
+│  Pushing code does NOT build anything by itself.           │
+└────────────┼────────────────────────────────────────────────┘
+             │
+             │  (you switch back to the terminal)
+             ▼
+┌─ YOUR MACHINE (again) ─────────────────────────────────────┐
+│  4. docker build  -t <ecr-uri>:latest .                    │
+│     └─ Dockerfile: python:3.11-slim → uv → deps → COPY .   │
+│                                                             │
+│  5. aws ecr get-login-password | docker login               │
+│     aws ecr push <ecr-uri>:latest                           │
+└────────────┼────────────────────────────────────────────────┘
+             │  image + digest
+             ▼
+┌─ AWS ───────────────────────────────────────────────────────┐
+│                                                             │
+│  ┌─ ECR (private registry) ─────────────────────────────┐   │
+│  │  butterfly-designer:latest → sha256:d8b048f8...      │   │
+│  │  sha256:fa12fec6...  (previous image, still there)   │   │
+│  └──────────────────────────────────────────────────────┘   │
+│             │                                                │
+│             │  6. aws ecs update-express-gateway-service     │
+│             │     --primary-container image=...@sha256:d8b0 │
+│             ▼                                                │
+│  ┌─ ECS Express Mode service ───────────────────────────┐   │
+│  │  ALB (internet-facing) + ACM cert + SG + autoscaling │   │
+│  │        │                                               │   │
+│  │        ▼  pulls image via ecsTaskExecutionRole       │   │
+│  │  Fargate task: 1 vCPU / 2 GB                          │   │
+│  │    └─ container: gunicorn :8000  (your image)         │   │
+│  │         └─ entrypoint.sh → collectstatic → gunicorn   │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 1.2 The exact commands
+
+```powershell
+# 4. build
+docker build -t 558948635923.dkr.ecr.ap-south-1.amazonaws.com/butterfly-designer:latest .
+
+# 5. publish
+$env:AWS_REGION = "ap-south-1"
+aws ecr get-login-password --region ap-south-1 |
+    docker login --username AWS --password-stdin 558948635923.dkr.ecr.ap-south-1.amazonaws.com
+docker push 558948635923.dkr.ecr.ap-south-1.amazonaws.com/butterfly-designer:latest
+
+# 6. release  (deploy by digest, never by a moving tag)
+aws ecs update-express-gateway-service `
+    --service-arn arn:aws:ecs:ap-south-1:558948635923:service/default/butterfly-designer `
+    --primary-container image=558948635923.dkr.ecr.ap-south-1.amazonaws.com/butterfly-designer@sha256:<digest> ...
+```
+
+The service's environment variables live on the task definition and are
+**not** re-sent on every update, so a redeploy cannot silently drop them.
+
+### 1.3 Runtime request path
+
+```
+browser
+  │  https://bu-28531a874a7140ab85cd8fe102fba400.ecs.ap-south-1.on.aws/shop/login/
+  ▼
+┌─ ALB (internet-facing) ──────────────────────────────┐
+│  • TLS terminated here (ACM cert for the .on.aws name)│
+│  • health check → GET /healthz → Host: 172.31.x.x    │
+│     → HealthCheckHostMiddleware rewrites the Host     │
+│     → Django 200 {"status":"ok"} → target = healthy   │
+│  • host rule: unknown Host → 404 (no rule matches)    │
+└───────────────┬──────────────────────────────────────┘
+                │ HTTP :8000 (ALB → container)
+                ▼
+┌─ Fargate task ───────────────────────────────────────┐
+│  gunicorn → Django                                  │
+│    ├─ ALLOWED_HOSTS check (400 on a bad Host)         │
+│    ├─ CSRF_TRUSTED_ORIGINS → 403 without a token      │
+│    ├─ DATABASE_URL ──────────────┐                    │
+│    └─ AWS_ACCESS_KEY_ID ────────┤                    │
+└────────────────────────────────┼────────────────────┘
+                                 │
+        ┌────────────────────────┴─────────────────┐
+        ▼                                          ▼
+┌─ Supabase Postgres ────────┐        ┌─ Supabase Storage ─┐
+│  pooled :6543, SSL         │        │  S3-compatible API  │
+│  (IPv4-only host, so the   │        │  bucket:            │
+│   direct db.* endpoint     │        │  butterflydesinger  │
+│   is NOT used)             │        └─────────────────────┘
+└────────────────────────────┘
+```
+
+### 1.4 Where the state lives
+
+| What | Value |
+|---|---|
+| Public URL | `https://bu-28531a874a7140ab85cd8fe102fba400.ecs.ap-south-1.on.aws` |
+| Service | `butterfly-designer` in cluster `default` |
+| Image | `558948635923.dkr.ecr.ap-south-1.amazonaws.com/butterfly-designer` |
+| Task definition | `default-butterfly-designer` (auto-numbered) |
+| Runtime | 1 vCPU / 2 GB, min 1 / max 1 task, port 8000 |
+| Health check | HTTP, path `/healthz`, interval 10 s |
+| Canary | 5% → 3 min bake → 100%, 4xx+5xx alarm → auto rollback |
+| Deployment | `developement` → `master` (master is what the build watches) |
+| Cost | ≈ $55/month (Fargate ~$36 + ALB ~$18 + logs/ECR ~$1–5) |
+
+---
+
+## Part 2 — GitHub Actions flow
+
+### 2.1 The pipeline
+
+```
+┌─ YOUR MACHINE ──────────┐
+│ edit → commit → push PR │────►┌─ GITHUB ─────────────────────────────────┐
+└─────────────────────────┘     │ PR opened                               │
+                                │   └─ tests.yml (runs the 110 tests)     │
+                                │      ● green ● → merge allowed          │
+                                │      ● red   ● → blocked                 │
+                                │                                           │
+                                │ merge to master                          │
+                                │   └─ build.yml (automatic)                │
+                                │      ├─ checkout commit                   │
+                                │      ├─ OIDC assume role ────────────────┼─┐
+                                │      ├─ docker build (Linux runner)        │ │
+                                │      └─ push to ECR  latest + <sha>       │ │
+                                │                                           │ │
+                                │ dispatch deploy.yml (manual)              │ │
+                                │   ├─ 1. run migrate one-off task ─────────┼─┼─┐
+                                │   └─ 2. update service by <sha> tag ──────┼─┼─┤
+                                └───────────────────────────────────────────┼─┼─┼─┘
+                                                                      │ │ │
+                     ┌───────────────────────────────────────────────┘ │ │
+                     ▼                                                 │ ▼
+              ┌─ ECR ─────────┐                             ┌─ Fargate task ──┐
+              │ latest        │                             │  new image      │
+              │ sha256:<git>  │                             │  canary 5% →    │
+              └───────────────┘                             │  3 min → 100%   │
+                     ▲                                       └─────────────────┘
+                     └───────────────────────────────────────────────┘
+                                ▲
+                     if 4xx+5xx > 1% for 2 datapoints
+                     → automatic rollback to the previous task
+```
+
+### 2.2 The three workflows
+
+All three live in `.github/workflows/`.
+
+**`tests.yml`** — the quality gate, on every PR:
+
+| Step | Action |
+|---|---|
+| environment | `DATABASE_URL` empty → `core/settings.py` falls back to SQLite, so no database service is needed. A dummy `DJANGO_SECRET_KEY` is required because settings.py fails closed without one. |
+| install | `astral-sh/setup-uv` pinned to the repo's uv version, then `uv sync --frozen` |
+| check | `uv run --frozen python manage.py check` |
+| test | `uv run --frozen python manage.py test` — the 110-test Django suite, ~2 min |
+
+**`build.yml`** — automatic on push to `master`:
+
+| Step | Action |
+|---|---|
+| authenticate | `aws-actions/configure-aws-credentials` with `role-to-assume: .../github-actions-deploy` via **OIDC** — no access keys in GitHub |
+| build | `aws-actions/amazon-ecr-build-push-action` on a Linux runner (matches Fargate) |
+| publish | tags `latest` **and** `<commit-sha>` — the SHA tag is what you deploy and roll back to |
+
+**`deploy.yml`** — manual (`workflow_dispatch`), picks a tag:
+
+| Step | Action |
+|---|---|
+| 1. migrate | run the migration as a one-off ECS task against the **new** image |
+| 2. release | `aws-actions/amazon-ecs-deploy-express-service` with the chosen tag |
+
+Migrations run **before** the code shifts, so the canary never serves an app
+whose schema does not exist yet.
+
+### 2.3 What the Actions flow buys
+
+| Property | Why it matters |
+|---|---|
+| Reproducible artifact | Built on a clean Linux runner, not a laptop with a dirty tree |
+| Build parity | A Linux runner is much closer to Fargate than a Windows workstation |
+| Audit trail | Image tagged with the commit SHA — you always know which commit is live |
+| Human step becomes a button | Merge = image built; deploy = one dispatch, one tag, one rollback path |
+| Quality gate | 110 Django tests run on every PR, before any image is built |
+| No static keys in CI | OIDC issues short-lived credentials, scoped to the repo |
+
+### 2.4 The `workflow` scope
+
+Pushing anything under `.github/workflows/` requires the `workflow` scope on
+your GitHub token. Without it GitHub rejects the push outright:
+
+```
+refusing to allow an OAuth App to create or update workflow
+'.github/workflows/build.yml' without 'workflow' scope
+```
+
+Grant it with:
+
+```powershell
+gh auth refresh -h github.com -s workflow     # browser: paste the code at
+                                              # https://github.com/login/device
+```
+
+Check it landed with:
+
+```powershell
+gh auth status | Select-String "Token scopes"   # must contain 'workflow'
+```
+
+---
+
+## Part 3 — Identities and credentials
+
+| Identity | Type | Holds | Used for |
+|---|---|---|---|
+| `gh` OAuth token | GitHub token | `repo`, `workflow`, `admin:public_key`, `gist`, `read:org` | `git push`, PRs, `gh` CLI |
+| AWS root (CLI default profile) | IAM user | full account | ⚠️ currently used for every deploy |
+| `butterfly-designer` | IAM user | `ecs-deploy`, `console-read`, `s3-butterfly-only`; console login | console access; **no access key yet** |
+| `github-actions-deploy` | IAM role | inline `ecs-deploy` | CI → assumed via OIDC, no stored keys |
+| `ecsTaskExecutionRole` | IAM role | `AmazonECSTaskExecutionRolePolicy` | ECS pulling the image + writing logs |
+| `ecsInfrastructureRoleForExpressServices` | IAM role | `AmazonECSInfrastructureRoleforExpressGatewayServices` + inline `express-mode-extra` | Express Mode creating ALB / ACM / SG / autoscaling |
+
+**Users** hold credentials you can leak. **Roles** are assumed by AWS, so no
+long-lived secret exists. Get off root by giving `butterfly-designer` an
+access key and using `--profile butterfly-designer`.
+
+The two inline policies are versioned in `infra/`:
+
+| File | Attached to | Why |
+|---|---|---|
+| `infra/ecs-deploy-policy.json` | `github-actions-deploy` role | ECR push + Express service API + `iam:PassRole` + logs |
+| `infra/express-mode-extra-policy.json` | `ecsInfrastructureRoleForExpressServices` role | the permissions the AWS-managed infrastructure policy does **not** grant |
+
+`infra/setup-aws-deploy-role.ps1` creates the whole set idempotently.
+
+---
+
+## Part 4 — Gotchas discovered while setting this up
+
+Each of these cost real time; they are here so nobody repeats them.
+
+**1. App Runner is closed to new customers (2026-04-30).**
+`aws apprunner list-services` → `SubscriptionRequiredException`. It was the
+"connect GitHub → pick branch → deploy" service, and it is gone for accounts
+created after the cutoff. ECS Express Mode is the replacement, which is why
+the pipeline has a build step at all.
+
+**2. `uv` installs to a new location.**
+The installer moved from `/root/.cargo/bin` to `/root/.local/bin`, so the
+Dockerfile's `ENV PATH` made `RUN uv sync --frozen` fail with
+`uv: not found`. Fixed with an explicit `ENV UV_INSTALL_DIR=/opt/uv`.
+
+**3. The AWS-managed infrastructure policy is not sufficient.**
+`AmazonECSInfrastructureRoleforExpressGatewayServices` does not grant
+`ec2:DescribeAccountAttributes`, `ecs:DescribeServices`, `ecs:UpdateService`,
+`cloudwatch:DescribeAlarms` or `iam:PassRole` — all of which Express Mode
+calls. The ALB creation fails with a masked *"An unknown error occurred"*.
+The supplementary inline policy `express-mode-extra` fixes it.
+
+**4. The load balancer's health check breaks Django's Host check.**
+The ALB probes the target with `Host: 172.31.16.84:8000` — the container's
+private IP, which changes on every task replacement, so it can never be
+listed in `ALLOWED_HOSTS`. Django's `CommonMiddleware` calls
+`request.get_host()` on **every** request, so the probe gets
+`400 DisallowedHost` → target unhealthy → the ALB answers `503` to real
+traffic. `core.middleware.HealthCheckHostMiddleware` rewrites the Host for
+`/healthz` only; it must be **first** in `MIDDLEWARE`.
+
+**5. The public hostname is generated, not the service name.**
+The endpoint is `bu-<hash>.ecs.ap-south-1.on.aws`, not
+`<service-name>.ecs.ap-south-1.on.aws`. `ALLOWED_HOSTS` and
+`CSRF_TRUSTED_ORIGINS` must carry the generated name, and the ACM
+certificate is issued for it.
+
+**6. Use the Supabase pooler, not the direct endpoint.**
+`db.<ref>.supabase.co` is IPv6-only and Fargate has no IPv6 egress. Use
+`aws-1-ap-south-1.pooler.supabase.com:6543`. Port 6543 (transaction mode) is
+safe here because the project uses **psycopg2**, which binds parameters
+client-side and never uses server-side prepared statements.
+
+**7. Line endings break the container.**
+With `core.autocrlf=true` a Windows checkout gives `entrypoint.sh` a CRLF
+shebang, and the container dies with `exec format error`. `.gitattributes`
+forces LF for `*.sh` and `Dockerfile`.
+
+**8. `migrate` must not run on boot.**
+Express Mode canary deployments start two containers at once; concurrent DDL
+against Postgres is unsafe. Migrations run as a one-off task, and
+`entrypoint.sh` keeps a passthrough so a task override reaches
+`manage.py migrate`.
+
+**9. The AWS CLI cannot run in a non-interactive shell.**
+Its colour module aborts with *"Found xterm-256color, while expecting a
+Windows console"*. Use `boto3` from the project venv for anything scripted
+(it is already a dependency) — same APIs, no console requirement.
+
+---
+
+## Part 5 — Deploy checklist
+
+Before any release:
+
+- [ ] Migrations applied (one-off task against the new image) **before** the code shifts
+- [ ] Image pushed and tagged (`<commit-sha>`)
+- [ ] Service updated by digest, not by `latest`
+- [ ] `GET /healthz` → `200 {"status": "ok"}`
+- [ ] Target group reports `healthy`
+- [ ] `/shop/login/` renders and a login POST succeeds
+- [ ] CloudWatch logs free of `DisallowedHost`, `CSRF verification failed`
+
+To roll back: deploy the previous `<commit-sha>` tag. Migrations are
+forward-only, so prefer additive migrations so a code rollback stays safe.
+
+---
+
+## Part 6 — Cost control
+
+The ALB bills hourly whether or not traffic arrives, so a forgotten service
+burns credits quietly. Two cheap safeguards:
+
+* **Budget alarm** — Billing → Budgets → Create → monthly threshold → email
+  (the billing APIs do not run in a non-interactive shell, so use the console).
+* **Scale to zero** — `--scaling-target minTaskCount=0,maxTaskCount=1` stops
+  the Fargate task (~$36/mo saved) but the ALB still bills (~$18/mo).
+* **Full teardown** — `aws ecs delete-express-gateway-service --service-arn ...`
+  plus deleting the ECR repository and the IAM roles.
