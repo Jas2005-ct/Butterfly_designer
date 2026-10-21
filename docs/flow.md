@@ -213,7 +213,7 @@ All three live in `.github/workflows/`.
 | Step | Action |
 |---|---|
 | authenticate | `aws-actions/configure-aws-credentials` with `role-to-assume: .../github-actions-deploy` via **OIDC** — no access keys in GitHub |
-| build | `aws-actions/amazon-ecr-build-push-action` on a Linux runner (matches Fargate) |
+| build | `docker/build-push-action` on a Linux runner (matches Fargate), pushed through the ECR credentials from `aws-actions/amazon-ecr-login` |
 | publish | tags `latest` **and** `<commit-sha>` — the SHA tag is what you deploy and roll back to |
 
 **`deploy.yml`** — manual (`workflow_dispatch`), picks a tag:

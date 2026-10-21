@@ -35,8 +35,14 @@ jobs:
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
       - name: Build and push image
-        uses: aws-actions/amazon-ecr-build-push-action@v6
+        # aws-actions/amazon-ecr-build-push-action was removed from GitHub
+        # (404), so the build is done with the official Docker action and
+        # pushed through the ECR credentials that amazon-ecr-login just set up.
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
