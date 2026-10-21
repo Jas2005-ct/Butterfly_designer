@@ -1,0 +1,30 @@
+{
+  "rules": [
+    {
+      "rulePriority": 1,
+      "description": "Keep the 5 most recent tagged releases so we always have rollback targets; expire older tagged images.",
+      "selection": {
+        "tagStatus": "tagged",
+        "tagPatternList": ["*"],
+        "countType": "imageCountMoreThan",
+        "countNumber": 5
+      },
+      "action": {
+        "type": "expire"
+      }
+    },
+    {
+      "rulePriority": 2,
+      "description": "Expire untagged images older than 30 days. buildx pushes an OCI index plus its child manifests, so untagged entries are expected here. 30 days is deliberately generous: the image a task is running may itself be untagged.",
+      "selection": {
+        "tagStatus": "untagged",
+        "countType": "sinceImagePushed",
+        "countUnit": "days",
+        "countNumber": 30
+      },
+      "action": {
+        "type": "expire"
+      }
+    }
+  ]
+}

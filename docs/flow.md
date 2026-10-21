@@ -81,7 +81,7 @@ traffic.
 │  │  ALB (internet-facing) + ACM cert + SG + autoscaling │   │
 │  │        │                                               │   │
 │  │        ▼  pulls image via ecsTaskExecutionRole       │   │
-│  │  Fargate task: 1 vCPU / 2 GB                          │   │
+│  │  Fargate task: 0.5 vCPU / 1 GB                        │   │
 │  │    └─ container: gunicorn :8000  (your image)         │   │
 │  │         └─ entrypoint.sh → collectstatic → gunicorn   │   │
 │  └──────────────────────────────────────────────────────┘   │
@@ -150,11 +150,11 @@ browser
 | Service | `butterfly-designer` in cluster `default` |
 | Image | `558948635923.dkr.ecr.ap-south-1.amazonaws.com/butterfly-designer` |
 | Task definition | `default-butterfly-designer` (auto-numbered) |
-| Runtime | 1 vCPU / 2 GB, min 1 / max 1 task, port 8000 |
-| Health check | HTTP, path `/healthz`, interval 10 s |
+| Runtime | 0.5 vCPU / 1 GiB — a `deploy.yml` release input (`cpu` / `memory`), min 1 / max 1 task, port 8000 |
+| Health check | HTTP, path `/healthz`, interval 30 s, 5 healthy checks before a task takes traffic |
 | Canary | 5% → 3 min bake → 100%, 4xx+5xx alarm → auto rollback |
 | Deployment | `developement` → `master` (master is what the build watches) |
-| Cost | ≈ $55/month (Fargate ~$36 + ALB ~$18 + logs/ECR ~$1–5) |
+| Cost | ≈ $35/month (Fargate ~$18 + ALB ~$16.5 + logs/ECR ~$0.5) — see Part 6 |
 
 ---
 
@@ -457,11 +457,63 @@ forward-only, so prefer additive migrations so a code rollback stays safe.
 ## Part 6 — Cost control
 
 The ALB bills hourly whether or not traffic arrives, so a forgotten service
-burns credits quietly. Two cheap safeguards:
+burns credits quietly. The bill is ~99.8% idle capacity: measured over the
+first days of production the traffic was ~70 requests/day and ~400 KB/day,
+with the task averaging **0.3% CPU** and **~63 MB of memory**. Nothing in this
+stack is billed per request.
 
+Safeguards, in the order they pay off:
+
+* **Right-size the task** — `deploy.yml` exposes `cpu` / `memory` as release
+  inputs (defaults `512` / `1024`). Dropping 1 vCPU / 2 GB → 0.5 vCPU / 1 GB
+  cuts the Fargate line from ~$36/mo to ~$18/mo with no user-visible change.
 * **Budget alarm** — Billing → Budgets → Create → monthly threshold → email
   (the billing APIs do not run in a non-interactive shell, so use the console).
-* **Scale to zero** — `--scaling-target minTaskCount=0,maxTaskCount=1` stops
-  the Fargate task (~$36/mo saved) but the ALB still bills (~$18/mo).
+* **ECR lifecycle policy** — `infra/ecr-lifecycle-policy.json`, applied to the
+  `butterfly-designer` repository. It keeps the 5 most recent tagged releases
+  so rollback targets always exist, and expires untagged images after 30 days.
+  buildx pushes an OCI image *index* plus its child manifests, so most
+  untagged entries in the repository are normal and the image a task is
+  running may itself be untagged — hence the generous window. ECR refuses to
+  expire a manifest that a live tagged index still references, so a tagged
+  release cannot be broken by this rule.
+* **Scale to zero** — read the warning below first.
 * **Full teardown** — `aws ecs delete-express-gateway-service --service-arn ...`
   plus deleting the ECR repository and the IAM roles.
+
+### What a task actually costs
+
+| Task size | Fargate /mo | Total with ALB | $200 credit lasts |
+|---|---|---|---|
+| 1 vCPU / 2 GiB *(as provisioned)* | ~$36.04 | ~$52.6 | ~3.8 months |
+| **0.5 vCPU / 1 GiB** *(deploy default)* | ~$18.02 | **~$34.6** | **~5.8 months** |
+| 0.25 vCPU / 0.5 GiB | ~$9.01 | ~$25.6 | ~7.8 months |
+| 0.5 vCPU / 1 GiB, scaled to zero | ~$0–2 | ~$17–19 | ~10–12 months |
+
+Fargate = 730 h × (vCPU × $0.04048 + GB × $0.004445). ALB = 730 h × $0.0225
+plus ~$0.13/mo of LCU at current traffic. CloudWatch Logs and ECR storage are
+rounding errors. Rates are us-east-1; Mumbai runs ~5–10% higher — enable Cost
+Explorer (Billing → Cost Explorer → Enable) for exact figures, since the cost
+APIs return `AccessDenied` until you do. Note that **$16.43/mo of ALB is the
+floor** inside Express Mode: it bills whether or not anyone visits.
+
+### ⚠ Before you scale to zero
+
+`--scaling-target minTaskCount=0,maxTaskCount=1` (or the action's
+`min-task-count: 0`) stops the Fargate task when idle. Three things to know
+first:
+
+1. **The ALB still bills ~$16/mo**, so that becomes the floor rather than the
+   saving.
+2. **The first request after idle returns 503.** With no healthy target the
+   ALB answers immediately; the task then cold-starts (pull image from ECR →
+   `collectstatic` → gunicorn), roughly 20–45 s, after which a retry works.
+3. **The scale-out metric must be `REQUEST_COUNT_PER_TARGET`.** The service
+   currently scales on `AVERAGE_CPU` at 60%, and with zero tasks running there
+   is no CPU metric to scale out on — the service can sit at zero indefinitely.
+   Change `auto-scaling-metric` in the same dispatch that sets
+   `min-task-count: 0`.
+
+Test the scale-*back up* path before relying on it, and keep the restore
+command ready:
+`aws ecs update-express-gateway-service --service-arn <arn> --scaling-target minTaskCount=1,maxTaskCount=1`.

@@ -5,6 +5,11 @@ name: Deploy to ECS Express Mode
 # NOTE: the container environment variables (DATABASE_URL, DJANGO_SECRET_KEY,
 # S3 credentials, ...) are configured on the service itself and are
 # deliberately NOT set here, so a redeploy cannot overwrite them.
+#
+# The task SIZE (cpu/memory) IS set here, because it is part of the release
+# decision. Defaults are 512 vCPU-units / 1024 MiB: measured production usage
+# is ~63 MB memory and 0.3% CPU average, so 1 vCPU / 2 GB was ~30x oversized
+# and cost ~$18/month more than needed. See docs/flow.md Part 6.
 
 on:
   workflow_dispatch:
@@ -12,6 +17,14 @@ on:
       image_tag:
         description: "Image tag to deploy - use the commit SHA of the release, e.g. a7c2941aa02d295d3a1751eec3594e4c33824968. Not 'latest': that tag moves with every merge."
         required: true
+      cpu:
+        description: "Task vCPU units - 256 / 512 / 1024 / 2048. Default 512 (0.5 vCPU); measured peak CPU is 25%."
+        required: false
+        default: "512"
+      memory:
+        description: "Task memory in MiB - 512 / 1024 / 2048. Default 1024 (1 GB); measured peak is ~63 MB."
+        required: false
+        default: "1024"
 
 permissions:
   id-token: write
@@ -38,6 +51,29 @@ jobs:
             exit 1
           fi
 
+      - name: Validate the task size
+        env:
+          DEPLOY_CPU: ${{ inputs.cpu }}
+          DEPLOY_MEMORY: ${{ inputs.memory }}
+        run: |
+          # Fail fast with a readable message instead of a cryptic ECS API
+          # error if someone types a size Fargate does not offer.
+          case " ${DEPLOY_CPU} " in
+            *" 256 "*|*" 512 "*|*" 1024 "*|*" 2048 "*) ;;
+            *)
+              echo "::error::cpu must be one of 256 / 512 / 1024 / 2048 (got '${DEPLOY_CPU}')"
+              exit 1
+              ;;
+          esac
+          case " ${DEPLOY_MEMORY} " in
+            *" 512 "*|*" 1024 "*|*" 2048 "*) ;;
+            *)
+              echo "::error::memory must be one of 512 / 1024 / 2048 (got '${DEPLOY_MEMORY}')"
+              exit 1
+              ;;
+          esac
+          echo "Task size: ${DEPLOY_CPU} vCPU-units / ${DEPLOY_MEMORY} MiB"
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -53,3 +89,5 @@ jobs:
           infrastructure-role-arn: arn:aws:iam::${{ env.ACCOUNT_ID }}:role/ecsInfrastructureRoleForExpressServices
           container-port: 8000
           health-check-path: /healthz
+          cpu: ${{ inputs.cpu }}
+          memory: ${{ inputs.memory }}
