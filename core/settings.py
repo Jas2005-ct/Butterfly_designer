@@ -79,6 +79,9 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # Must stay first: it repairs the Host header for the load balancer's
+    # health probe before CommonMiddleware calls request.get_host().
+    'core.middleware.HealthCheckHostMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
