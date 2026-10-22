@@ -40,6 +40,17 @@
     {% endif %}
 </div>
 
+<!-- Measurements: this customer's current numbers -->
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+    {% include "shop/customers/_measurement_list.html" with rows=customer.measurement.measured %}
+    {% if not customer.measurement %}
+    <p class="text-sm text-slate-500">
+        No measurements on file. Add them from <span class="font-medium">Edit</span> — orders
+        placed afterwards will keep their own copy.
+    </p>
+    {% endif %}
+</div>
+
 <!-- Orders -->
 <div class="bg-white rounded-2xl border border-slate-200 p-5">
     <div class="flex items-center justify-between mb-4">

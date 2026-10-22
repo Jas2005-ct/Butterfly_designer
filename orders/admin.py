@@ -1,11 +1,28 @@
 from django.contrib import admin
 
-from .models import Order, OrderItem, OrderStageHistory
+from .models import Order, OrderItem, OrderMeasurement, OrderStageHistory
 
 
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 1
+
+
+class OrderMeasurementInline(admin.TabularInline):
+    """The order's frozen measurements, shown read-only.
+
+    Deliberately not editable: this row is written once when the order is
+    placed and records what the garment was actually cut to. Allowing an edit
+    would let an order quietly claim numbers nobody ever used, which is the
+    exact thing the snapshot exists to prevent - re-measuring a customer is
+    what the customer page is for.
+    """
+
+    model = OrderMeasurement
+    extra = 0
+    max_num = 1
+    can_delete = False
+    readonly_fields = tuple(field.name for field in OrderMeasurement._meta.fields)
 
 
 class OrderStageHistoryInline(admin.TabularInline):
@@ -19,7 +36,7 @@ class OrderAdmin(admin.ModelAdmin):
     list_display = ("order_number", "customer", "service_type", "stage", "total", "promised_date", "created_at")
     list_filter = ("stage", "service_type")
     search_fields = ("order_number", "customer__name", "customer__phone")
-    inlines = (OrderItemInline, OrderStageHistoryInline)
+    inlines = (OrderItemInline, OrderMeasurementInline, OrderStageHistoryInline)
 
 
 @admin.register(OrderStageHistory)
