@@ -1,0 +1,76 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EcsRead",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:ListClusters",
+        "ecs:DescribeClusters",
+        "ecs:ListServices",
+        "ecs:DescribeServices",
+        "ecs:ListTaskDefinitions",
+        "ecs:DescribeTaskDefinition",
+        "ecs:ListTasks",
+        "ecs:DescribeTasks",
+        "ecs:ListContainerInstances",
+        "ecs:DescribeContainerInstances",
+        "ecs:ListServicesForDeployment",
+        "ecs:DescribeServiceDeployments",
+        "ecs:DescribeDeployments",
+        "ecs:ListDeployments",
+        "ecs:DescribeAttributes",
+        "ecs:ListAttributes",
+        "ecs:DescribeCapacityProviders",
+        "ecs:ListAccountSettings",
+        "ecs:ListTagsForResource",
+        "ecs:DescribeExpressGatewayService",
+        "ecs:ListExpressGatewayServices"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "LogsRead",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:FilterLogEvents",
+        "logs:GetLogEvents",
+        "logs:ListLogGroups"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AutoscalingRead",
+      "Effect": "Allow",
+      "Action": [
+        "autoscaling:DescribeAutoScalingGroups",
+        "autoscaling:DescribeAutoScalingInstances",
+        "autoscaling:DescribeScalingActivities",
+        "autoscaling:DescribePolicies",
+        "application-autoscaling:DescribeScalableTargets",
+        "application-autoscaling:DescribeScalingActivities",
+        "application-autoscaling:DescribeScalingPolicies"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InfrastructureRead",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:Describe*",
+        "ecr:Describe*",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:List*",
+        "elasticloadbalancing:Describe*",
+        "iam:GetRole",
+        "iam:ListRoles",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
