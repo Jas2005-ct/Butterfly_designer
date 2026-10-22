@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from django import forms
 
-from .models import PaymentMode
+from .models import PaymentKind, PaymentMode
 
 
 class PaymentForm(forms.Form):
@@ -18,6 +18,12 @@ class PaymentForm(forms.Form):
     Why a Form: amount must be a positive decimal and mode must be a
     known choice — the Form rejects bad input before any DB contact
     (a failed money query would poison the surrounding transaction).
+
+    Why the delivery picker is built in __init__ rather than declared on the
+    class: which deliveries exist is a property of one order, not of the
+    Form. Declaring it statically would offer every hand-over the shop has
+    ever made, and an operator picking the wrong one would quietly move a
+    customer's money onto another customer's order.
     """
 
     amount = forms.DecimalField(
@@ -30,6 +36,22 @@ class PaymentForm(forms.Form):
                 "min": "0.01",
                 "placeholder": "0.00",
                 "class": "w-full text-lg px-4 py-3 rounded-xl border border-slate-300 "
+                "focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none",
+            }
+        ),
+    )
+    kind = forms.ChoiceField(
+        choices=PaymentKind.choices,
+        initial=PaymentKind.ADVANCE,
+        required=False,
+        widget=forms.RadioSelect,
+    )
+    delivery = forms.ChoiceField(
+        choices=[("", "— none —")],
+        required=False,
+        widget=forms.Select(
+            attrs={
+                "class": "w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 "
                 "focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none",
             }
         ),
@@ -50,3 +72,63 @@ class PaymentForm(forms.Form):
             }
         ),
     )
+
+    def __init__(self, *args, order=None, **kwargs):
+        """Offer only this order's hand-overs, each named by its date.
+
+        Why the date in the label: the operator recognises "12 Oct hand-over"
+        and cannot recognise a database id, and misreading which delivery a
+        payment is against is the one error this feature can introduce.
+
+        Args:
+            *args: Standard positional args, the POST data when bound.
+            order: The Order whose deliveries may be named, or None when the
+                form is only being displayed (the picker then offers nothing).
+            **kwargs: Standard keyword args.
+
+        Returns:
+            None. The instance's delivery choices are set on the field.
+        """
+        super().__init__(*args, **kwargs)
+        self.order = order
+        choices = [("", "— none —")]
+        if order is not None:
+            choices += [
+                (str(d.id), f"{d.delivered_on:%d %b %Y} — {d.total_quantity} pieces")
+                for d in order.deliveries.all()
+            ]
+        self.fields["delivery"].choices = choices
+
+    def clean_kind(self):
+        """A missing kind means Advance, not an error.
+
+        Why: every payment recorded before this field existed was an advance
+        against the order, so a POST that omits it — a stale browser tab, an
+        import, a script — describes the old behaviour exactly. Rejecting it
+        would break callers for a distinction they never had to make.
+
+        Returns:
+            str: One of PaymentKind's values, defaulting to "advance".
+        """
+        return self.cleaned_data.get("kind") or PaymentKind.ADVANCE
+
+    def clean(self):
+        """Keep the kind and the named delivery telling the same story.
+
+        Why both directions are checked: the field alone cannot express the
+        rule, because each half is legal on its own. An advance naming a
+        delivery would let one hand-over absorb money that was never given
+        at it; a delivery payment naming none would file cash against an
+        event that has not happened.
+
+        Returns:
+            dict|None: The cleaned data, or None if an error was raised.
+        """
+        cleaned = super().clean()
+        kind = cleaned.get("kind")
+        delivery_id = cleaned.get("delivery")
+        if kind == PaymentKind.DELIVERY and not delivery_id:
+            self.add_error("delivery", "Choose which delivery this payment is against.")
+        elif kind and kind != PaymentKind.DELIVERY and delivery_id:
+            self.add_error("delivery", "Only an 'Against delivery' payment can name one.")
+        return cleaned
