@@ -17,13 +17,18 @@ def dues(request):
     Why: this is the "who owes us money" list the owner checks daily.
     Delivered/cancelled orders are excluded — their money is handled at
     handover, not as dues. Fully-paid open orders are excluded too.
+
+    Orders with no agreed price fall out of the balance list by themselves,
+    since their balance is None and None is not greater than zero. That is
+    correct for the money total but would hide the order from the report
+    entirely, so they get their own "Amount not set" group — an unpriced
+    order is precisely the one most likely to be forgotten.
     """
     sort = request.GET.get("sort", "promised")
-    orders_qs = (
+    open_orders = annotate_balances(
         Order.objects.exclude(stage__in=[OrderStage.DELIVERED, OrderStage.CANCELLED])
         .select_related("customer")
     )
-    orders_qs = annotate_balances(orders_qs).filter(balance__gt=0)
 
     sort_options = {
         "promised": F("promised_date").asc(nulls_last=True),
@@ -34,7 +39,12 @@ def dues(request):
     ordering = sort_options.get(sort, sort_options["promised"])
     if sort not in sort_options:
         sort = "promised"
-    orders_qs = orders_qs.order_by(ordering)
+
+    orders_qs = open_orders.filter(balance__gt=0).order_by(ordering)
+    # Same ordering as the main list for consistency. Under "Highest due" it
+    # amounts to nothing here — every row's balance is NULL — which is honest,
+    # since an unpriced order has no due to rank by.
+    unpriced_qs = open_orders.filter(total__isnull=True).order_by(ordering)
 
     outstanding = orders_qs.aggregate(total=Sum("balance"))["total"]
     if outstanding is None:
@@ -45,6 +55,7 @@ def dues(request):
         "shop/billing/dues.html",
         {
             "orders": orders_qs[:200],
+            "unpriced": unpriced_qs[:200],
             "sort": sort,
             "total_outstanding": outstanding,
         },
@@ -58,14 +69,30 @@ def order_payment_add(request, order_id):
 
     Why HTMX + partial: counter staff record advances rapid-fire without
     losing the order detail scroll position to a full reload.
+
+    Why the delivery is re-scoped to the order here rather than fetched by id:
+    the picker only ever offers this order's hand-overs, so a stray id can only
+    arrive in a hand-built POST. Looking it up inside order.deliveries turns
+    that into a plain "not yours" instead of a payment filed against another
+    customer's hand-over.
     """
     order = get_object_or_404(Order, id=order_id)
-    form = PaymentForm(request.POST)
+    form = PaymentForm(request.POST, order=order)
     if not form.is_valid():
         context = payment_section_context(order)
         context["payment_form"] = form
         context["error"] = "Please fix the highlighted fields."
         return render(request, "shop/billing/_payments.html", context, status=400)
+
+    delivery = None
+    delivery_id = form.cleaned_data.get("delivery")
+    if delivery_id:
+        delivery = order.deliveries.filter(id=delivery_id).first()
+        if delivery is None:
+            context = payment_section_context(order)
+            context["payment_form"] = form
+            context["error"] = "That delivery does not belong to this order."
+            return render(request, "shop/billing/_payments.html", context, status=400)
 
     try:
         record_payment(
@@ -74,6 +101,8 @@ def order_payment_add(request, order_id):
             form.cleaned_data["mode"],
             request.user,
             note=form.cleaned_data["note"],
+            kind=form.cleaned_data["kind"],
+            delivery=delivery,
         )
     except ValueError as e:
         context = payment_section_context(order)

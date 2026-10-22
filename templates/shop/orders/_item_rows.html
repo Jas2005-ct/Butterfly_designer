@@ -1,0 +1,70 @@
+{# Line-item editor, shared by the order create and edit forms. #}
+{# #}
+{# Expects `item_rows` (objects, or None for a blank row) and #}
+{# `material_choices`. Blank rows are skipped when the form is read back, so #}
+{# shipping a couple of empty ones just makes the shape of the editor visible #}
+{# without staff having to press something first. #}
+{# #}
+{# `price` is the price of ONE unit - see orders.models.OrderItem. #}
+
+<div class="mb-4">
+    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+        <label class="block text-sm font-medium text-slate-700">Items</label>
+        <span class="text-xs text-slate-500">
+            Optional. Leave the rows blank for a job that isn't itemised.
+        </span>
+    </div>
+
+    <table class="w-full">
+        <thead>
+            <tr class="text-left text-xs text-slate-500 uppercase tracking-wide">
+                <th class="pb-2 pr-2 font-medium">Item</th>
+                <th class="pb-2 pr-2 w-20 font-medium">Qty</th>
+                <th class="pb-2 pr-2 w-28 font-medium">Unit ₹</th>
+                <th class="pb-2 pr-2 w-40 font-medium">Cloth</th>
+                <th class="pb-2 w-8"></th>
+            </tr>
+        </thead>
+        <tbody id="item-rows">
+            {% for row in item_rows %}
+            {% include "shop/orders/_item_row.html" with item=row %}
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <button type="button" id="add-item-row"
+            class="mt-2 text-sm font-semibold text-indigo-600 hover:text-indigo-800">
+        + Add another item
+    </button>
+</div>
+
+{# Cloned by the script below, so it must stay a plain blank row. #}
+<template id="item-row-template">
+    {% include "shop/orders/_item_row.html" with item=None %}
+</template>
+
+<script>
+    (function () {
+        var tbody = document.getElementById("item-rows");
+        var template = document.getElementById("item-row-template");
+        var addButton = document.getElementById("add-item-row");
+        if (!tbody || !template || !addButton) return;
+
+        addButton.addEventListener("click", function () {
+            tbody.appendChild(template.content.cloneNode(true));
+            var added = tbody.lastElementChild;
+            var firstField = added && added.querySelector("input[name=item_description]");
+            if (firstField) firstField.focus();
+        });
+
+        // One delegated listener instead of one per row: rows are added and
+        // removed after this script runs, and re-binding would be easy to
+        // forget.
+        tbody.addEventListener("click", function (event) {
+            var button = event.target.closest(".remove-item");
+            if (!button) return;
+            var row = button.closest(".item-row");
+            if (row) row.remove();
+        });
+    })();
+</script>

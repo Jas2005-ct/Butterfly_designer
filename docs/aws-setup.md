@@ -240,7 +240,7 @@ tagged index references, so a tagged release cannot be broken by this rule.
 
 There is **no static AWS key in GitHub** — CI assumes the role by OIDC.
 
-### Open gap
+### Gap — CI role drift (2026-10-22)
 
 The deploy workflow logged this during the 2026-10-22 release:
 
@@ -251,9 +251,21 @@ identity-based policy allows the ecs:ListServiceDeployments action
 
 The deploy still succeeded (the action issues the update first), but the
 workflow **cannot watch the rollout to completion**, so it reports success
-without confirming the canary finished. Add `ecs:ListServiceDeployments` to
-the `ExpressServiceManagement` statement in `infra/ecs-deploy-policy.json`
-and re-apply it to `github-actions-deploy`.
+without confirming the canary finished.
+
+Comparing `infra/ecs-deploy-policy.json` against the policy **actually on the
+role** found two distinct drifts:
+
+| Action | In repo file | On live role | Why it is needed |
+|---|---|---|---|
+| `ecs:ListServiceDeployments` | ❌ was missing | ❌ | lets `deploy.yml` follow the canary to `COMPLETED` |
+| `ecs:ListClusters` / `DescribeClusters` | ✅ added in PR #37 | ❌ | shipped in the file but the setup script was never re-run |
+| `logs:GetLogEvents` | ✅ added in this PR | ❌ | lets the new migrate step print the Django traceback when a migration fails |
+
+**The file is fixed. Applying it is a separate step** — the policy only reaches
+AWS when `infra/setup-aws-deploy-role.ps1` runs (it does `put-role-policy` on
+`github-actions-deploy`). Until then CI still runs with the old 15-action
+policy.
 
 ---
 

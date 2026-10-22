@@ -1,0 +1,50 @@
+{% load shop_extras %}
+{% comment %}
+Kanban columns for the Order Board's board view. Expects stage_order,
+columns, column_totals, remaining_counts and show_all in context.
+
+It lives in its own file so shop/orders/_board_content.html can include it,
+and that fragment is what order_card_advance re-renders after a stage change.
+That is what makes a tap update the card, the column counts and the tab
+totals together, instead of leaving the DOM stale until a manual reload.
+{% endcomment %}
+<!-- Kanban Board: snap-scrolls per column on touch (portrait tablet),
+     shows more columns side-by-side as the screen widens (landscape/desktop). -->
+<div class="overflow-x-auto pb-4 snap-x scroll-smooth">
+    <div class="flex gap-3 min-w-max" style="min-width: 100%;">
+        {% for stage in stage_order %}
+        <div class="w-72 lg:w-80 flex-shrink-0 snap-start bg-slate-50 rounded-2xl border border-slate-200 flex flex-col">
+            <!-- Stage Header -->
+            <div class="px-4 py-3 border-b border-slate-200 bg-white rounded-t-2xl flex items-center justify-between sticky top-0">
+                <h3 class="font-bold text-sm uppercase tracking-wider text-slate-600">
+                    {{ stage|capfirst }}
+                </h3>
+                <span id="col-count-{{ stage }}" class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                    {{ column_totals|get_item:stage }}
+                </span>
+            </div>
+
+            <!-- Order Cards (capped; urgency-ordered) -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-3 min-h-[400px]">
+                {% for order in columns|get_item:stage %}
+                    {% include "shop/orders/_order_card.html" %}
+                {% empty %}
+                <div class="text-center text-slate-300 py-8 text-sm">
+                    <p>No orders</p>
+                </div>
+                {% endfor %}
+                {% with remaining=remaining_counts|get_item:stage %}
+                {% if remaining > 0 %}
+                <div class="text-center pt-1">
+                    <a href="?tab={{ tab }}&view=board{% if query %}&q={{ query }}{% endif %}&show=all"
+                       class="inline-block px-4 py-2 rounded-xl text-sm font-medium border border-slate-300 text-slate-600 bg-white hover:bg-slate-100">
+                        Show all {{ remaining }} more
+                    </a>
+                </div>
+                {% endif %}
+                {% endwith %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>

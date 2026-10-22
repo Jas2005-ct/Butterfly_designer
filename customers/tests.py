@@ -1,8 +1,10 @@
+from decimal import Decimal
+
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
-from customers.models import Customer
+from customers.models import Customer, CustomerMeasurement
 
 
 class CustomerModelTests(TestCase):
@@ -53,3 +55,147 @@ class CustomerSearchTests(TestCase):
         self.assertContains(response, "customer-search")
         response = self.client.get(reverse("orders:create") + f"?customer={customer.id}")
         self.assertContains(response, "Priya Nair")
+
+
+class CustomerMeasurementTests(TestCase):
+    """The eight inch fields on the customer forms, and the rules around them."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="mgr", password="secret123")
+        self.client.login(username="mgr", password="secret123")
+
+    def test_create_records_measurements(self):
+        response = self.client.post(
+            reverse("customers:create"),
+            {
+                "name": "Priya",
+                "phone": "9876543210",
+                "bust": "34",
+                "waist": "28",
+                "hips": "38",
+                "shoulder": "14.5",
+                "sleeve_length": "22",
+                "blouse_length": "15",
+                "height": "64",
+                "neck_depth": "7.5",
+            },
+        )
+        self.assertRedirects(response, reverse("customers:list"))
+        measurement = Customer.objects.get(name="Priya").measurement
+        self.assertEqual(measurement.bust, Decimal("34"))
+        self.assertEqual(measurement.shoulder, Decimal("14.5"))
+        self.assertEqual(measurement.neck_depth, Decimal("7.5"))
+        # Guards against a ninth field being added to the model but not to
+        # the form, which would silently never be collectable.
+        self.assertEqual(len(measurement.MEASUREMENT_LABELS), 8)
+
+    def test_create_leaves_unmeasured_fields_blank(self):
+        """A blouse customer is not made to supply a height."""
+        self.client.post(
+            reverse("customers:create"),
+            {"name": "Priya", "phone": "9876543210", "bust": "34"},
+        )
+        measurement = Customer.objects.get(name="Priya").measurement
+        self.assertEqual(measurement.bust, Decimal("34"))
+        self.assertIsNone(measurement.height)
+        self.assertIsNone(measurement.hips)
+
+    def test_create_without_any_measurement_stores_no_row(self):
+        """Blank boxes must not manufacture an empty measurement record."""
+        self.client.post(reverse("customers:create"), {"name": "Deepa", "phone": "9123456780"})
+        customer = Customer.objects.get(name="Deepa")
+        self.assertFalse(CustomerMeasurement.objects.filter(customer=customer).exists())
+        # hasattr is False rather than raising: a missing reverse one-to-one
+        # surfaces as an AttributeError, which is what the templates rely on.
+        self.assertFalse(hasattr(customer, "measurement"))
+
+    def test_non_numeric_measurement_is_rejected(self):
+        response = self.client.post(
+            reverse("customers:create"),
+            {"name": "Priya", "phone": "9876543210", "waist": "twenty"},
+        )
+        self.assertContains(response, "Waist must be a number")
+
+    def test_out_of_range_measurement_is_rejected(self):
+        """Zero, negatives and transposed digits are typos, not measurements."""
+        for bad in ("0", "-3", "430", "100.01"):
+            with self.subTest(value=bad):
+                response = self.client.post(
+                    reverse("customers:create"),
+                    {"name": "Priya", "phone": "9876543210", "hips": bad},
+                )
+                self.assertContains(response, "Hips must be more than 0")
+
+    def test_rejected_measurement_creates_no_customer(self):
+        """Validating before writing means a typo leaves no half-made row."""
+        self.client.post(
+            reverse("customers:create"),
+            {"name": "Priya", "phone": "9876543210", "waist": "twenty"},
+        )
+        self.assertFalse(Customer.objects.filter(name="Priya").exists())
+
+    def test_rejected_measurement_repopulates_the_form(self):
+        """Fixing one bad box must not cost a retyped form."""
+        response = self.client.post(
+            reverse("customers:create"),
+            {"name": "Priya", "phone": "9876543210", "bust": "34", "waist": "twenty"},
+        )
+        self.assertContains(response, 'value="34"')
+        self.assertContains(response, "twenty")
+
+    def test_edit_prefills_stored_measurements(self):
+        customer = Customer.objects.create(name="Priya", phone="9876543210")
+        CustomerMeasurement.objects.create(customer=customer, bust=Decimal("34"))
+        response = self.client.get(reverse("customers:edit", args=[customer.id]))
+        self.assertContains(response, 'value="34.00"')
+
+    def test_edit_saves_changed_measurements(self):
+        customer = Customer.objects.create(name="Priya", phone="9876543210")
+        CustomerMeasurement.objects.create(customer=customer, bust=Decimal("34"))
+        self.client.post(
+            reverse("customers:edit", args=[customer.id]),
+            {"name": "Priya", "phone": "9876543210", "bust": "36"},
+        )
+        customer.measurement.refresh_from_db()
+        self.assertEqual(customer.measurement.bust, Decimal("36"))
+
+    def test_edit_clears_a_measurement_left_blank(self):
+        """The form comes pre-filled, so an emptied box means "erase it"."""
+        customer = Customer.objects.create(name="Priya", phone="9876543210")
+        CustomerMeasurement.objects.create(
+            customer=customer, bust=Decimal("34"), waist=Decimal("28")
+        )
+        self.client.post(
+            reverse("customers:edit", args=[customer.id]),
+            {"name": "Priya", "phone": "9876543210", "waist": "28"},
+        )
+        customer.measurement.refresh_from_db()
+        self.assertIsNone(customer.measurement.bust)
+        self.assertEqual(customer.measurement.waist, Decimal("28"))
+
+    def test_edit_clearing_everything_removes_the_row(self):
+        customer = Customer.objects.create(name="Priya", phone="9876543210")
+        CustomerMeasurement.objects.create(customer=customer, bust=Decimal("34"))
+        self.client.post(
+            reverse("customers:edit", args=[customer.id]),
+            {"name": "Priya", "phone": "9876543210"},
+        )
+        self.assertFalse(CustomerMeasurement.objects.filter(customer=customer).exists())
+
+    def test_detail_page_shows_only_what_was_measured(self):
+        customer = Customer.objects.create(name="Priya", phone="9876543210")
+        CustomerMeasurement.objects.create(customer=customer, bust=Decimal("34"))
+        response = self.client.get(reverse("customers:detail", args=[customer.id]))
+        self.assertContains(response, "Bust")
+        self.assertContains(response, "34.00")
+        self.assertNotContains(response, "Neck depth")
+
+    def test_detail_page_offers_an_empty_state(self):
+        customer = Customer.objects.create(name="Deepa", phone="9123456780")
+        response = self.client.get(reverse("customers:detail", args=[customer.id]))
+        self.assertContains(response, "No measurements on file")
+
+    def test_customer_form_requires_login(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse("customers:create")).status_code, 302)
+        self.assertEqual(self.client.post(reverse("customers:create"), {}).status_code, 302)
