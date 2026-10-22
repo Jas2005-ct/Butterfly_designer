@@ -57,7 +57,7 @@
 
     {% if user.is_authenticated %}
     <nav class="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 nav-safe-bottom z-40 print:hidden">
-        <div class="grid grid-cols-5 text-[11px] sm:text-xs lg:text-sm font-medium text-slate-500">
+        <div class="grid {% if user.profile.is_admin %}grid-cols-5{% else %}grid-cols-3{% endif %} text-[11px] sm:text-xs lg:text-sm font-medium text-slate-500">
             <a href="{% url 'orders:board' %}"
                class="flex flex-col items-center justify-center gap-1 py-3 hover:text-indigo-600 {% if request.resolver_match.namespace == 'orders' %}text-indigo-600{% endif %}">
                 <span class="text-lg leading-none">&#128717;&#65039;</span> Orders
@@ -79,13 +79,6 @@
                class="flex flex-col items-center justify-center gap-1 py-3 hover:text-indigo-600 {% if request.resolver_match.namespace == 'accounts' %}text-indigo-600{% endif %}">
                 <span class="text-lg leading-none">&#9881;&#65039;</span> Users
             </a>
-            {% else %}
-            <div class="flex flex-col items-center justify-center gap-1 py-3 text-slate-300">
-                <span class="text-lg leading-none">&#128101;</span> Team
-            </div>
-            <div class="flex flex-col items-center justify-center gap-1 py-3 text-slate-300">
-                <span class="text-lg leading-none">&#128202;</span> More
-            </div>
             {% endif %}
         </div>
     </nav>
