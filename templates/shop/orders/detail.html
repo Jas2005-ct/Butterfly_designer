@@ -38,7 +38,9 @@
         </div>
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Total</div>
-            <div class="font-bold text-lg text-indigo-700">₹{{ order.total|floatformat:2 }}</div>
+            <div class="font-bold text-lg {% if order.is_priced %}text-indigo-700{% else %}text-slate-400{% endif %}">
+                {% if order.is_priced %}₹{{ order.total|floatformat:2 }}{% else %}Total not set{% endif %}
+            </div>
         </div>
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Material Cost</div>
@@ -147,7 +149,11 @@
     <table class="w-full text-sm mb-3">
         <tr class="border-b border-slate-200">
             <td class="py-1.5 font-bold">Total</td>
-            <td class="py-1.5 text-right font-bold">₹{{ order.total|floatformat:2 }}</td>
+            {# A receipt that printed ₹0.00 for a price nobody has agreed would #}
+            {# be a promise the shop never made, so it says so instead. #}
+            <td class="py-1.5 text-right font-bold">
+                {% if order.is_priced %}₹{{ order.total|floatformat:2 }}{% else %}To be confirmed{% endif %}
+            </td>
         </tr>
         {% for p in payments %}
         <tr class="border-b border-slate-100">
@@ -157,7 +163,9 @@
         {% endfor %}
         <tr>
             <td class="py-1.5 font-bold">Balance due</td>
-            <td class="py-1.5 text-right font-bold">₹{{ balance|floatformat:2 }}</td>
+            <td class="py-1.5 text-right font-bold">
+                {% if order.is_priced %}₹{{ balance|floatformat:2 }}{% else %}—{% endif %}
+            </td>
         </tr>
     </table>
     <p class="text-xs text-slate-600">Track this order: {{ request.scheme }}://{{ request.get_host }}{% url 'orders:track' order.track_token %}</p>

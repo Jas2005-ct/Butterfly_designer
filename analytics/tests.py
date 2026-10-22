@@ -9,7 +9,7 @@ from django.utils import timezone
 from billing.models import Payment, PaymentMode
 from billing.services import record_payment
 from customers.models import Customer
-from orders.models import Order, OrderStage
+from orders.models import Order, OrderStage, ServiceType
 from orders.services import advance_stage
 from . import services
 
@@ -230,3 +230,67 @@ class DashboardViewTests(TestCase):
         self.client.login(username="mgr", password="secret123")
         response = self.client.get(reverse("analytics:dashboard"))
         self.assertEqual(response.status_code, 403)
+
+
+class UnpricedTotalTests(TestCase):
+    """A NULL total is money nobody has agreed yet, not money worth zero.
+
+    Sums treat it as 0 because you cannot add an unknown — but that is a
+    booking decision, not a claim that the job was free. The moment the price
+    is agreed the same order starts counting, and the outstanding-balance
+    figures must never pick these orders up as either owing or settled.
+    """
+
+    def setUp(self):
+        # An admin rather than a manager: this class records payments and also
+        # loads the dashboard, which managers are denied (403).
+        self.user = User.objects.create_user(username="adm", password="secret123")
+        self.user.profile.role = "admin"
+        self.user.profile.save()
+        self.client.login(username="adm", password="secret123")
+        self.customer = Customer.objects.create(name="Priya", phone="9876543210")
+
+    def test_profit_totals_count_an_unpriced_order_as_zero_revenue(self):
+        Order.objects.create(customer=self.customer, total=Decimal("1000.00"))
+        Order.objects.create(customer=self.customer)  # price not agreed
+        result = services.profit_totals()
+        self.assertEqual(result["revenue"], Decimal("1000.00"))
+
+    def test_profit_totals_of_only_unpriced_orders_is_zero_not_an_error(self):
+        Order.objects.create(customer=self.customer)
+        result = services.profit_totals()
+        self.assertEqual(result["revenue"], Decimal("0.00"))
+        self.assertEqual(result["profit"], Decimal("0.00"))
+
+    def test_service_mix_counts_the_order_but_books_nothing(self):
+        Order.objects.create(customer=self.customer, total=Decimal("700.00"))
+        Order.objects.create(customer=self.customer)
+        row = next(
+            r for r in services.service_mix() if r["service"] == ServiceType.OTHER
+        )
+        self.assertEqual(row["count"], 2)
+        self.assertEqual(row["revenue"], Decimal("700.00"))
+
+    def test_top_customers_book_nothing_for_unpriced_work(self):
+        Order.objects.create(customer=self.customer)
+        customer = services.top_customers()[0]
+        self.assertEqual(customer.revenue, Decimal("0.00"))
+        self.assertEqual(customer.order_count, 1)
+
+    def test_unpriced_orders_are_not_outstanding(self):
+        """balance is None, and None is neither a debt nor proof of payment."""
+        Order.objects.create(customer=self.customer)
+        self.assertEqual(services.total_outstanding(), Decimal("0.00"))
+
+    def test_outstanding_counts_the_priced_orders_only(self):
+        priced = Order.objects.create(customer=self.customer, total=Decimal("800.00"))
+        record_payment(priced, "300", PaymentMode.CASH, self.user)
+        Order.objects.create(customer=self.customer)
+        self.assertEqual(services.total_outstanding(), Decimal("500.00"))
+
+    def test_dashboard_renders_with_unpriced_orders(self):
+        """Smoke test: the one page that aggregates everything at once."""
+        Order.objects.create(customer=self.customer)
+        # setUp already signed in as the admin.
+        response = self.client.get(reverse("analytics:dashboard"))
+        self.assertEqual(response.status_code, 200)

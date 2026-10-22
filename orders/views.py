@@ -501,7 +501,10 @@ def order_create(request):
         customer_phone = (request.POST.get("customer_phone") or "").strip()
         service_type = request.POST.get("service_type") or ServiceType.OTHER
         description = (request.POST.get("description") or "").strip()
-        total_raw = request.POST.get("total") or "0"
+        # No `or "0"`: a blank box must reach _parse_money as blank, so it
+        # stays None. Coercing to "0" here would record an order as agreed to
+        # be free the moment someone leaves the field empty.
+        total_raw = request.POST.get("total")
         material_raw = request.POST.get("material_cost") or None
         promised_date = request.POST.get("promised_date") or None
         notes = (request.POST.get("notes") or "").strip()
@@ -645,7 +648,11 @@ def order_edit(request, order_id):
         order.description = (request.POST.get("description") or "").strip()
         total_raw = request.POST.get("total")
         material_raw = request.POST.get("material_cost")
-        total, total_error = _parse_money(total_raw, "Total") if total_raw else (order.total, None)
+        # Blank means "not agreed yet", not "keep whatever was there". The
+        # total is optional now, and an edit form that silently refused to
+        # clear a value would be the more surprising of the two readings.
+        # Material cost, just below, already behaves this way.
+        total, total_error = _parse_money(total_raw, "Total")
         material_cost, material_error = _parse_money(material_raw, "Material cost")
         if total_error or material_error:
             messages.error(request, total_error or material_error)

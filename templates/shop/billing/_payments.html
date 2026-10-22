@@ -16,25 +16,32 @@
 <div class="grid grid-cols-3 gap-3 mb-4 text-center">
     <div class="bg-slate-50 rounded-xl border border-slate-200 px-2 py-3">
         <div class="text-[11px] text-slate-500 uppercase tracking-wider">Total</div>
-        <div class="font-bold">₹{{ order.total|floatformat:2 }}</div>
+        <div class="font-bold">{% if order.is_priced %}₹{{ order.total|floatformat:2 }}{% else %}—{% endif %}</div>
     </div>
     <div class="bg-slate-50 rounded-xl border border-slate-200 px-2 py-3">
         <div class="text-[11px] text-slate-500 uppercase tracking-wider">Paid</div>
         <div class="font-bold text-emerald-700">₹{{ paid|floatformat:2 }}</div>
     </div>
     <div class="rounded-xl border px-2 py-3
-        {% if balance > 0 %}bg-red-50 border-red-200
+        {% if not order.is_priced %}bg-slate-50 border-slate-200
+        {% elif balance > 0 %}bg-red-50 border-red-200
         {% elif balance < 0 %}bg-amber-50 border-amber-200
         {% else %}bg-emerald-50 border-emerald-200{% endif %}">
         <div class="text-[11px] text-slate-500 uppercase tracking-wider">Balance</div>
         <div class="font-bold
-            {% if balance > 0 %}text-red-700
+            {% if not order.is_priced %}text-slate-400
+            {% elif balance > 0 %}text-red-700
             {% elif balance < 0 %}text-amber-700
-            {% else %}text-emerald-700{% endif %}">₹{{ balance|floatformat:2 }}</div>
+            {% else %}text-emerald-700{% endif %}">
+            {% if order.is_priced %}₹{{ balance|floatformat:2 }}{% else %}TBD{% endif %}</div>
     </div>
 </div>
 
-{% if balance < 0 %}
+{% if not order.is_priced %}
+<div class="mb-4 px-4 py-3 rounded-lg bg-slate-50 text-slate-600 text-sm border border-slate-200">
+    💬 Amount not agreed yet. Payments still count — the balance appears once a total is set.
+</div>
+{% elif balance < 0 %}
 <div class="mb-4 px-4 py-3 rounded-lg bg-amber-50 text-amber-800 text-sm border border-amber-200">
     ⚠️ Overpaid — please verify or refund the excess.
 </div>
