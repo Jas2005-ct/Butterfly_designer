@@ -220,11 +220,20 @@ All three live in `.github/workflows/`.
 
 | Step | Action |
 |---|---|
-| 1. migrate | run the migration as a one-off ECS task against the **new** image |
-| 2. release | `aws-actions/amazon-ecs-deploy-express-service` with the chosen tag |
+| 1. validate | reject `latest`; check `cpu`/`memory` are sizes Fargate actually offers |
+| 2. migrate | `aws ecs run-task` with `command: ["migrate","--noinput"]` against the **new** image, then wait for the task and require exit **0** |
+| 3. release | `aws-actions/amazon-ecs-deploy-express-service` with the chosen tag |
 
 Migrations run **before** the code shifts, so the canary never serves an app
-whose schema does not exist yet.
+whose schema does not exist yet — and because step 2 blocks on the task's exit
+code, a failed migration fails the workflow and the service is never updated.
+On failure the step also prints the container log, since the Django traceback
+lives there and `stoppedReason` never carries it.
+
+The `migrate` input (default `true`) exists for one case: rolling back to an
+older image, whose migrations are already applied and must not be replayed.
+**Migrations must stay additive** — the previous containers keep serving during
+the gap between step 2 and the rollout.
 
 ### 2.3 What the Actions flow buys
 
@@ -434,7 +443,8 @@ forces LF for `*.sh` and `Dockerfile`.
 Express Mode canary deployments start two containers at once; concurrent DDL
 against Postgres is unsafe. Migrations run as a one-off task, and
 `entrypoint.sh` keeps a passthrough so a task override reaches
-`manage.py migrate`.
+`manage.py migrate`. The one-off task is launched by `deploy.yml` itself
+(step 2) and blocks the release on a non-zero exit.
 
 **9. The AWS CLI cannot run in a non-interactive shell.**
 Its colour module aborts with *"Found xterm-256color, while expecting a
@@ -447,7 +457,7 @@ Windows console"*. Use `boto3` from the project venv for anything scripted
 
 Before any release:
 
-- [ ] Migrations applied (one-off task against the new image) **before** the code shifts
+- [ ] Migrations applied — `deploy.yml` step 2 runs the one-off task and fails the release on a non-zero exit (set `migrate: false` only when rolling back)
 - [ ] Image pushed and tagged (`<commit-sha>`)
 - [ ] Service updated by digest, not by `latest`
 - [ ] `GET /healthz` → `200 {"status": "ok"}`
