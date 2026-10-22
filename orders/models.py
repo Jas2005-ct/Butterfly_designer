@@ -29,6 +29,23 @@ class ServiceType(models.TextChoices):
     OTHER = "other", "Other"
 
 
+class MaterialSource(models.TextChoices):
+    """Where the cloth for a line item comes from.
+
+    Straight from the client: some customers hand over their own cloth,
+    others buy it at the shop, and one order can contain both.
+
+    MIXED is never stored on an item - an item is exactly one or the other -
+    but an order holding both needs a word for it, so Order.material_source
+    returns it. That is why the item field below lists only SHOP and
+    CUSTOMER rather than using these .choices wholesale.
+    """
+
+    SHOP = "shop", "Shop supplies"
+    CUSTOMER = "customer", "Customer supplies"
+    MIXED = "mixed", "Mixed"
+
+
 def generate_order_number():
     year = timezone.now().strftime("%y")
     prefix = f"BD-{year}-"
@@ -75,14 +92,73 @@ class Order(models.Model):
             self.order_number = generate_order_number()
         super().save(*args, **kwargs)
 
+    @property
+    def material_source(self):
+        """Where the cloth for this whole order comes from.
+
+        Derived rather than stored on purpose: one order can mix shop cloth
+        and customer-supplied cloth line by line, so a stored flag would go
+        stale the moment a line was added or edited.
+
+        Walks items.all() rather than querying values_list() on purpose:
+        the order page prefetches items, and going through the manager
+        reuses that cache instead of costing an extra query per page.
+
+        Returns:
+            A MaterialSource member - SHOP when every line is shop cloth,
+            CUSTOMER when all of them are the customer's, MIXED when both
+            appear. An order with no lines at all reports SHOP: that is what
+            it meant before line items existed, and staff have no other
+            signal to go on.
+        """
+        sources = {item.material_source for item in self.items.all()}
+        if not sources:
+            return MaterialSource.SHOP
+        if len(sources) == 1:
+            return MaterialSource(sources.pop())
+        return MaterialSource.MIXED
+
 
 class OrderItem(models.Model):
+    """One line of an order.
+
+    `price` is the price for a SINGLE unit, not the line total - that is
+    quantity * price, exposed as line_total. The name stays `price` rather
+    than becoming `unit_price` because the deploy step runs migrations before
+    the new code lands, and a rename would break the still-running old code
+    during that window.
+    """
+
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
     description = models.CharField(max_length=255)
+    quantity = models.PositiveIntegerField(default=1)
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # Only SHOP and CUSTOMER: an item is never MIXED (see MaterialSource).
+    # Written as explicit pairs rather than MaterialSource.choices, which
+    # would admit MIXED - a value that only ever exists in the derived
+    # Order.material_source and must never be stored on a line.
+    material_source = models.CharField(
+        max_length=20,
+        choices=[
+            (MaterialSource.SHOP.value, MaterialSource.SHOP.label),
+            (MaterialSource.CUSTOMER.value, MaterialSource.CUSTOMER.label),
+        ],
+        default=MaterialSource.SHOP,
+    )
 
     def __str__(self):
-        return f"{self.description} ({self.price})"
+        return f"{self.quantity} x {self.description} ({self.price})"
+
+    @property
+    def line_total(self):
+        """What this line costs on its own, before any order-level figure.
+
+        Returns:
+            Decimal. Zero-priced lines are entirely normal: a customer who
+            supplied the cloth spent nothing at the shop, so the line is
+            stitching labour only.
+        """
+        return self.quantity * self.price
 
 
 class OrderStageHistory(models.Model):

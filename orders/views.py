@@ -11,7 +11,14 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
-from .models import Order, OrderStage, OrderStageHistory, ServiceType
+from .models import (
+    MaterialSource,
+    Order,
+    OrderItem,
+    OrderStage,
+    OrderStageHistory,
+    ServiceType,
+)
 from .services import (
     STAGE_EMOJI,
     STAGE_ORDER,
@@ -42,7 +49,155 @@ def _parse_money(value, field_label):
     return amount, None
 
 
+def _parse_quantity(raw):
+    """Validate a line-item quantity.
+
+    A blank box means one: a row is only on the form because staff typed a
+    description for it, and nobody writes "0 blouses". Zero and negatives are
+    rejected rather than coerced, because they make a line that can never be
+    handed over - which would silently cap what the order can deliver once
+    partial delivery lands on top of this.
+
+    Args:
+        raw: the submitted string, possibly blank.
+
+    Returns:
+        (value, error) - value is an int of at least 1, or None when the
+        input is not a whole number.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return 1, None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None, "quantity must be a whole number of at least 1."
+    if value < 1:
+        return None, "quantity must be a whole number of at least 1."
+    return value, None
+
+
+def _items_from_post(request):
+    """Read the line-item editor out of a submitted order form.
+
+    Rows reach the server as five parallel lists of repeated field names, so
+    they are zipped back together. A row whose id is unreadable is rejected
+    rather than treated as new: quietly duplicating a line the staff already
+    had would lose the original when the form is reconciled.
+
+    Rows left completely blank are dropped rather than rejected - the editor
+    ships with empty rows so staff can add another without hunting for a
+    button.
+
+    Args:
+        request: the POST request.
+
+    Returns:
+        (items, error) - items is a list of dicts, each carrying id (None for
+        a new row), description, quantity, price and material_source, ready
+        to hand to the ORM. error is None, or a message naming the row that
+        needs fixing.
+    """
+    ids = request.POST.getlist("item_id")
+    descriptions = request.POST.getlist("item_description")
+    quantities = request.POST.getlist("item_quantity")
+    prices = request.POST.getlist("item_price")
+    sources = request.POST.getlist("item_material")
+
+    # zip() would truncate to the shortest list, silently dropping whatever
+    # the extra rows carried. Every row contributes all five inputs, so
+    # uneven counts mean the form came back mangled and it is safer to say so
+    # than to save a plausible-looking subset.
+    if len({len(ids), len(descriptions), len(quantities), len(prices), len(sources)}) > 1:
+        return None, "The item rows came back incomplete - please reload and try again."
+
+    items = []
+    for index, (row_id, description, quantity_raw, price_raw, source) in enumerate(
+        zip(ids, descriptions, quantities, prices, sources), start=1
+    ):
+        description = description.strip()
+        if not description:
+            continue  # an untouched blank row
+
+        try:
+            item_id = int(row_id) if row_id else None
+        except ValueError:
+            return None, f"Item {index}: unreadable row reference."
+
+        quantity, quantity_error = _parse_quantity(quantity_raw)
+        if quantity_error:
+            return None, f"Item {index} ({description}): {quantity_error}"
+
+        price, price_error = _parse_money(price_raw, f"Item {index} ({description}) price")
+        if price_error:
+            return None, price_error
+        # Blank means free, not NULL. The column is not nullable, and a
+        # customer-supplied-cloth line legitimately costs the shop nothing -
+        # so the editor's empty box has to arrive as 0.
+        price = price if price is not None else Decimal("0")
+
+        if source not in (MaterialSource.SHOP, MaterialSource.CUSTOMER):
+            return None, f"Item {index} ({description}): unknown material source."
+
+        items.append(
+            {
+                "id": item_id,
+                "description": description,
+                "quantity": quantity,
+                "price": price,
+                "material_source": source,
+            }
+        )
+
+    return items, None
+
+
+def _apply_items(order, items):
+    """Write a submitted set of line items onto an order, in place.
+
+    Why not delete-everything-and-recreate: partial delivery will hang
+    DeliveryLine rows off OrderItem, so an edited item has to keep its
+    identity or every delivery pointing at it would be orphaned. Matching on
+    the posted row id now costs a handful of lines and avoids that rework.
+
+    Args:
+        order: the Order being edited.
+        items: dicts from _items_from_post, in the order staff listed them.
+            A dict whose "id" is None is new; one naming an existing item is
+            updated in place.
+
+    Returns:
+        None. The order's items end up matching `items` exactly, and anything
+        the staff removed from the form is deleted.
+    """
+    keep_ids = [item["id"] for item in items if item["id"]]
+    order.items.exclude(id__in=keep_ids).delete()
+
+    for item in items:
+        fields = {
+            "description": item["description"],
+            "quantity": item["quantity"],
+            "price": item["price"],
+            "material_source": item["material_source"],
+        }
+        if item["id"]:
+            # Scoped to this order: a forged row id can never reach
+            # somebody else's line.
+            OrderItem.objects.filter(id=item["id"], order=order).update(**fields)
+        else:
+            OrderItem.objects.create(order=order, **fields)
+
+
 BOARD_COLUMN_CAP = 10
+
+# What a line item's material dropdown offers. MIXED is excluded: it is only
+# ever a description of a whole order, never something staff pick for one
+# line. Written as pairs because a TextChoices member is a str subclass, so
+# looping it in a template would unpack the word "shop" into s-h-o-p.
+ITEM_MATERIAL_CHOICES = [
+    (MaterialSource.SHOP.value, MaterialSource.SHOP.label),
+    (MaterialSource.CUSTOMER.value, MaterialSource.CUSTOMER.label),
+]
 
 
 def _stage_button_context(order, user):
@@ -357,6 +512,11 @@ def order_create(request):
             messages.error(request, total_error or material_error)
             return redirect("orders:create")
 
+        items, items_error = _items_from_post(request)
+        if items_error:
+            messages.error(request, items_error)
+            return redirect("orders:create")
+
         if service_type not in ServiceType.values:
             messages.error(request, "Invalid service type.")
             return redirect("orders:create")
@@ -390,6 +550,9 @@ def order_create(request):
             # even after the customer is re-measured. No-op when the customer
             # has never been measured - plenty of orders are taken first.
             snapshot_measurements(order)
+            # Same helper as the edit view: a fresh order has no lines yet, so
+            # the reconcile degenerates to "create everything".
+            _apply_items(order, items)
         except ValidationError:
             messages.error(request, "Invalid total, material cost, or date. Please check the values.")
             return redirect("orders:create")
@@ -407,6 +570,11 @@ def order_create(request):
         {
             "selected_customer": selected_customer,
             "service_choices": ServiceType.choices,
+            # Two blank rows so the shape of the editor is visible without
+            # staff having to press something first. Blank rows are skipped
+            # on the way back in.
+            "item_rows": [None, None],
+            "material_choices": ITEM_MATERIAL_CHOICES,
         },
     )
 
@@ -482,6 +650,10 @@ def order_edit(request, order_id):
         if total_error or material_error:
             messages.error(request, total_error or material_error)
             return redirect("orders:edit", order_id=order.id)
+        items, items_error = _items_from_post(request)
+        if items_error:
+            messages.error(request, items_error)
+            return redirect("orders:edit", order_id=order.id)
         order.total = total
         order.material_cost = material_cost
         promised_date = request.POST.get("promised_date")
@@ -492,6 +664,7 @@ def order_edit(request, order_id):
         except ValidationError:
             messages.error(request, "Invalid total, material cost, or date. Please check the values.")
             return redirect("orders:edit", order_id=order.id)
+        _apply_items(order, items)
         messages.success(request, "Order updated.")
         return redirect("orders:detail", order_id=order.id)
 
@@ -501,5 +674,9 @@ def order_edit(request, order_id):
         {
             "order": order,
             "service_choices": ServiceType.choices,
+            # One blank row after the existing lines, so adding another is
+            # just filling it in rather than hunting for a button.
+            "item_rows": list(order.items.all()) + [None],
+            "material_choices": ITEM_MATERIAL_CHOICES,
         },
     )
