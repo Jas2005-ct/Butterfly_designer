@@ -3,19 +3,36 @@
 {% block title %}Customers — Butterfly Shop{% endblock %}
 
 {% block content %}
-<div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+<div class="mb-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3.5">
     <div>
-        <h1 class="text-2xl font-bold">Customers</h1>
-        <p class="text-slate-500 text-sm">{{ customers|length }} customers</p>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Customers</h1>
+        <p class="text-slate-500 text-sm mt-0.5 font-medium">{{ customers|length }} customer{{ customers|length|pluralize }}</p>
     </div>
-    <div class="flex gap-2 w-full sm:w-auto">
-        <form method="get" class="flex-1">
+    <div class="flex items-center gap-2.5 w-full md:w-auto">
+        <form method="get" class="relative flex-1 sm:w-80 md:w-88 lg:w-96">
+            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/>
+                </svg>
+            </div>
             <input type="text" name="q" value="{{ query }}" placeholder="Search name or phone…"
-                   class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                   class="w-full text-sm font-normal pl-10 pr-9 py-2.5 sm:py-3 bg-white text-slate-800 placeholder:text-slate-400 rounded-xl border border-slate-200 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all outline-none">
+            {% if query %}
+            <a href="{% url 'customers:list' %}"
+               class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
+               title="Clear search">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </a>
+            {% endif %}
         </form>
         <a href="{% url 'customers:create' %}"
-           class="bg-slate-900 text-white px-5 py-3 rounded-xl font-bold text-sm hover:bg-indigo-600 transition-colors whitespace-nowrap">
-            + New Customer
+           class="inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-semibold text-sm bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-200 transition-all active:scale-[0.98] whitespace-nowrap">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+            </svg>
+            <span>New Customer</span>
         </a>
     </div>
 </div>

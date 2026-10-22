@@ -4,53 +4,77 @@
 {% block title %}Order Board — Butterfly Shop{% endblock %}
 
 {% block content %}
-<div class="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+<div class="mb-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3.5">
     <div>
-        <h1 class="text-2xl font-bold">Order Board</h1>
-        <p class="text-slate-500 text-sm">{{ total_orders }} order{{ total_orders|pluralize }} · {{ tab|capfirst }}</p>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Order Board</h1>
+        <p class="text-slate-500 text-sm mt-0.5 flex items-center gap-1.5 font-medium">
+            <span class="inline-block w-2 h-2 rounded-full {% if tab == 'active' %}bg-emerald-500{% elif tab == 'delivered' %}bg-indigo-500{% else %}bg-slate-400{% endif %}"></span>
+            <span>{{ total_orders }} order{{ total_orders|pluralize }}</span>
+            <span class="text-slate-300">·</span>
+            <span class="text-indigo-600 font-semibold">{{ tab|capfirst }}</span>
+        </p>
     </div>
-    <div class="flex gap-2 w-full sm:w-auto">
-        <form method="get" class="flex-1 sm:w-64">
+    <div class="flex items-center gap-2.5 w-full md:w-auto">
+        <form method="get" class="relative flex-1 sm:w-80 md:w-88 lg:w-96">
             <input type="hidden" name="tab" value="{{ tab }}">
             <input type="hidden" name="view" value="{{ view_mode }}">
+            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/>
+                </svg>
+            </div>
             <input type="text" name="q" value="{{ query }}" placeholder="Search order #, name, phone…"
-                   class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                   class="w-full text-sm font-normal pl-10 pr-9 py-2.5 sm:py-3 bg-white text-slate-800 placeholder:text-slate-400 rounded-xl border border-slate-200 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all outline-none">
+            {% if query %}
+            <a href="?tab={{ tab }}&view={{ view_mode }}"
+               class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
+               title="Clear search">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </a>
+            {% endif %}
         </form>
         <a href="{% url 'orders:create' %}"
-           class="bg-slate-900 text-white px-5 py-3 rounded-xl font-bold text-sm hover:bg-indigo-600 transition-colors whitespace-nowrap">
-            + New Order
+           class="inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-semibold text-sm bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm shadow-indigo-200 transition-all active:scale-[0.98] whitespace-nowrap">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+            </svg>
+            <span>New Order</span>
         </a>
     </div>
 </div>
 
 <!-- Tabs: Active work by default, finished orders one tap away -->
-<div class="flex flex-wrap gap-2 mb-3" role="tablist" aria-label="Order groups">
+<div class="flex flex-wrap items-center gap-2 mb-4" role="tablist" aria-label="Order groups">
     <a href="?tab=active&view={{ view_mode }}{% if query %}&q={{ query }}{% endif %}" role="tab"
-       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
-       {% if tab == 'active' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+       class="px-4 py-2 rounded-xl font-medium text-sm transition-all shadow-sm
+       {% if tab == 'active' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900{% endif %}">
         Active ({{ counts.active }})
     </a>
     <a href="?tab=delivered&view={{ view_mode }}{% if query %}&q={{ query }}{% endif %}" role="tab"
-       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
-       {% if tab == 'delivered' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+       class="px-4 py-2 rounded-xl font-medium text-sm transition-all shadow-sm
+       {% if tab == 'delivered' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900{% endif %}">
         Delivered ({{ counts.delivered }})
     </a>
     <a href="?tab=cancelled&view={{ view_mode }}{% if query %}&q={{ query }}{% endif %}" role="tab"
-       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
-       {% if tab == 'cancelled' %}bg-slate-900 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
+       class="px-4 py-2 rounded-xl font-medium text-sm transition-all shadow-sm
+       {% if tab == 'cancelled' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900{% endif %}">
         Cancelled ({{ counts.cancelled }})
     </a>
     <span class="flex-1"></span>
-    <a href="?tab={{ tab }}&view=board{% if query %}&q={{ query }}{% endif %}"
-       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
-       {% if view_mode == 'board' %}bg-indigo-600 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
-        🗂 Board
-    </a>
-    <a href="?tab={{ tab }}&view=list{% if query %}&q={{ query }}{% endif %}"
-       class="px-4 py-2.5 rounded-xl font-medium text-sm transition-colors
-       {% if view_mode == 'list' %}bg-indigo-600 text-white{% else %}bg-white border border-slate-300 text-slate-600 hover:bg-slate-100{% endif %}">
-        ☰ List
-    </a>
+    <div class="inline-flex p-1 bg-slate-100 rounded-xl border border-slate-200 shadow-sm">
+        <a href="?tab={{ tab }}&view=board{% if query %}&q={{ query }}{% endif %}"
+           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all
+           {% if view_mode == 'board' %}bg-white text-indigo-600 shadow-sm font-semibold{% else %}text-slate-600 hover:text-slate-900{% endif %}">
+            <span>🗂</span> Board
+        </a>
+        <a href="?tab={{ tab }}&view=list{% if query %}&q={{ query }}{% endif %}"
+           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all
+           {% if view_mode == 'list' %}bg-white text-indigo-600 shadow-sm font-semibold{% else %}text-slate-600 hover:text-slate-900{% endif %}">
+            <span>☰</span> List
+        </a>
+    </div>
 </div>
 
 {% if view_mode == 'list' %}
