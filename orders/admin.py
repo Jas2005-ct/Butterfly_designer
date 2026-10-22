@@ -1,10 +1,29 @@
 from django.contrib import admin
 
-from .models import Order, OrderItem, OrderMeasurement, OrderStageHistory
+from .models import (
+    Delivery,
+    DeliveryLine,
+    Order,
+    OrderItem,
+    OrderMeasurement,
+    OrderStageHistory,
+)
 
 
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
+    extra = 1
+
+
+class DeliveryLineInline(admin.TabularInline):
+    """The pieces in one hand-over, editable alongside the visit.
+
+    Kept editable to match how Payment is exposed: the admin is for fixing
+    mistakes, and the shop's normal path - record_delivery() - still refuses
+    over-delivery for everyone using the app.
+    """
+
+    model = DeliveryLine
     extra = 1
 
 
@@ -42,3 +61,11 @@ class OrderAdmin(admin.ModelAdmin):
 @admin.register(OrderStageHistory)
 class OrderStageHistoryAdmin(admin.ModelAdmin):
     list_display = ("order", "from_stage", "to_stage", "changed_by", "changed_at")
+
+
+@admin.register(Delivery)
+class DeliveryAdmin(admin.ModelAdmin):
+    list_display = ("order", "delivered_on", "recorded_by", "created_at")
+    list_filter = ("delivered_on",)
+    search_fields = ("order__order_number", "order__customer__name", "order__customer__phone")
+    inlines = (DeliveryLineInline,)
