@@ -25,6 +25,13 @@ advance as cards, ~3x denser. Expects flat_orders in context.
                 {% elif order.balance > 0 %}
                 <span class="ml-1 font-bold text-indigo-700">₹{{ order.balance|floatformat:2 }}</span>
                 {% endif %}
+                {# Compact here - this row already carries stage, date, service #}
+                {# and balance, and there is no wrapping on it. The board card #}
+                {# spells out "delivered"; the 📦 makes the fraction readable #}
+                {# either way. #}
+                {% if order.total_quantity %}
+                <span class="ml-1 px-2 py-1 rounded-full bg-sky-50 text-sky-700 font-medium">📦 {{ order.delivered_quantity }}/{{ order.total_quantity }}</span>
+                {% endif %}
             </div>
             <div class="flex flex-wrap gap-1">
                 {% if order.is_overdue %}

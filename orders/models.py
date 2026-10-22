@@ -141,6 +141,80 @@ class Order(models.Model):
             return MaterialSource(sources.pop())
         return MaterialSource.MIXED
 
+    @property
+    def total_quantity(self):
+        """Pieces ordered across every line, before any hand-over.
+
+        Walks items.all() like material_source does, so a page that already
+        prefetches items answers this without another query — which is what
+        makes the per-card badge on the board affordable.
+
+        Returns:
+            int. Zero for an order with no lines, which is normal (itemising
+            is optional) and means "nothing to hand over" rather than
+            "everything handed over".
+        """
+        return sum(item.quantity for item in self.items.all())
+
+    @property
+    def delivered_quantity(self):
+        """Pieces handed over so far, across every delivery recorded.
+
+        Reads deliveries -> lines rather than aggregating in SQL so that a
+        page prefetching `deliveries__lines` gets this for free. Going
+        through a fresh query here would put one round trip per board card.
+
+        Returns:
+            int. Never negative — record_delivery() refuses to over-deliver.
+        """
+        return sum(
+            line.quantity
+            for delivery in self.deliveries.all()
+            for line in delivery.lines.all()
+        )
+
+    @property
+    def remaining_quantity(self):
+        """Pieces still owed. Can only be negative through hand-edited data;
+        the service layer refuses the writes that would cause it."""
+        return self.total_quantity - self.delivered_quantity
+
+    @property
+    def is_fully_delivered(self):
+        """Whether every piece has been handed over.
+
+        Why `total_quantity > 0` is part of the test: an order with no line
+        items has 0 ordered and 0 delivered, so a bare `remaining == 0`
+        would call it complete and auto-advance a job nobody has started.
+        Itemising is optional, so that is a normal order, not an edge case —
+        such orders are closed with the ordinary stage button instead.
+
+        Returns:
+            bool. Uses >= rather than == so that over-delivered data (which
+            record_delivery prevents) can never read as outstanding.
+        """
+        total = self.total_quantity
+        return total > 0 and self.delivered_quantity >= total
+
+    @property
+    def delivery_percent(self):
+        """Whole percent of the order handed over, for progress bars.
+
+        On the model rather than computed in each view: the order page and
+        the public tracking page draw the same bar, and two copies of this
+        division would eventually disagree about one order.
+
+        Returns:
+            int from 0 to 100. Zero when the order carries no line items, so
+            an unitemised order renders an empty bar instead of dividing by
+            zero - and it never exceeds 100 because record_delivery refuses
+            the writes that would push it there.
+        """
+        total = self.total_quantity
+        if not total:
+            return 0
+        return min(100, int(self.delivered_quantity * 100 / total))
+
 
 class OrderItem(models.Model):
     """One line of an order.
@@ -182,6 +256,101 @@ class OrderItem(models.Model):
             stitching labour only.
         """
         return self.quantity * self.price
+
+    @property
+    def delivered_quantity(self):
+        """Pieces of this line already handed over, across every delivery.
+
+        Reads delivery_lines.all() rather than aggregating so a page that
+        prefetches `items__delivery_lines` answers this for free — that
+        prefetch is what lets the record-delivery form show how many are
+        still owed per line before staff type a count.
+
+        Returns:
+            int.
+        """
+        return sum(line.quantity for line in self.delivery_lines.all())
+
+    @property
+    def remaining_quantity(self):
+        """Pieces of this line still to hand over.
+
+        Returns:
+            int. Not clamped at zero: record_delivery() refuses the writes
+            that would make it negative, so a negative here would itself be
+            the signal that something bypassed the service layer.
+        """
+        return self.quantity - self.delivered_quantity
+
+
+class Delivery(models.Model):
+    """One hand-over visit: some or all of the pieces, on a stated date.
+
+    Why a table instead of a counter on the order: the client's own example
+    was "if a customer given 10 blouse they delivery a 2 -> 4 -> 2 -> 2 in
+    differnet date" — four visits on four dates. A single counter would lose
+    when each batch went out, how many, and who handed it over, and could
+    never answer "what did she collect on the 14th?".
+
+    `amount_collected` is reserved for money handed over at the counter
+    during a visit. It is deliberately not on the record-delivery form yet:
+    payments get their own ledger (a Payment row linked back to this
+    delivery) so the balance keeps one source of truth instead of two that
+    drift apart.
+    """
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="deliveries")
+    delivered_on = models.DateField(default=timezone.localdate)
+    note = models.TextField(blank=True)
+    amount_collected = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    recorded_by = models.ForeignKey(
+        "auth.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="deliveries_recorded",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["delivered_on", "created_at"]
+
+    def __str__(self):
+        return f"{self.order.order_number} — {self.delivered_on:%d %b %Y}"
+
+    @property
+    def total_quantity(self):
+        """Pieces handed over in this one visit.
+
+        Walks lines.all() rather than aggregating so the detail page's
+        `deliveries__lines` prefetch answers it at no extra query cost.
+
+        Returns:
+            int. Zero only if the lines were ever removed behind our back —
+            not reachable through the app, but a page must not crash on it.
+        """
+        return sum(line.quantity for line in self.lines.all())
+
+
+class DeliveryLine(models.Model):
+    """How many of one item went out in one visit.
+
+    order_item is PROTECT rather than CASCADE: a delivery line records pieces
+    that physically left the shop. Deleting the order item it points at would
+    silently rewrite what the shop claims it handed over — and the money
+    side hangs off this model too, so the damage would reach the balance.
+    """
+
+    delivery = models.ForeignKey(Delivery, on_delete=models.CASCADE, related_name="lines")
+    order_item = models.ForeignKey(
+        OrderItem, on_delete=models.PROTECT, related_name="delivery_lines"
+    )
+    quantity = models.PositiveIntegerField()
+
+    def __str__(self):
+        return f"{self.quantity} x {self.order_item.description}"
 
 
 class OrderStageHistory(models.Model):

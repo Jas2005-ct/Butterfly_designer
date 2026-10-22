@@ -1,5 +1,5 @@
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from importlib import import_module
 
@@ -11,6 +11,8 @@ from django.utils import timezone
 
 from customers.models import Customer, CustomerMeasurement
 from orders.models import (
+    Delivery,
+    DeliveryLine,
     MaterialSource,
     Order,
     OrderItem,
@@ -24,6 +26,7 @@ from orders.services import (
     VALID_NEXT_STAGES,
     advance_stage,
     can_transition,
+    record_delivery,
     snapshot_measurements,
 )
 
@@ -1122,3 +1125,249 @@ class OptionalTotalTests(TestCase):
         Order.objects.create(customer=self.customer)
         response = self.client.get(reverse("customers:detail", args=[self.customer.id]))
         self.assertContains(response, "Amount TBD")
+
+
+class PartialDeliveryTests(TestCase):
+    """Handing work over in batches: the client's own "2 -> 4 -> 2 -> 2".
+
+    Full text: "if a cusotmer given 10 blouse they delivery a 2 -> 4 -> 2 -> 2
+    in differnet date". Everything below is about the count staying honest,
+    the stage moving only when the lifecycle allows it, and no path letting
+    the shop record more pieces than it actually handed over.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="mgr", password="secret123")
+        self.client.login(username="mgr", password="secret123")
+        self.customer = Customer.objects.create(name="Priya", phone="9876543210")
+        self.order = Order.objects.create(
+            customer=self.customer, stage=OrderStage.READY, total=Decimal("1000")
+        )
+        self.item = OrderItem.objects.create(
+            order=self.order, description="Blouse", quantity=10, price=Decimal("50")
+        )
+
+    def deliver(self, quantity, **kwargs):
+        """Record `quantity` of the fixture item and return the Delivery."""
+        return record_delivery(self.order, [(self.item, quantity)], **kwargs)
+
+    # ------------------------------------------------------------------ maths
+
+    def test_the_client_example_two_four_two_two(self):
+        for index, quantity in enumerate([2, 4, 2, 2], start=1):
+            self.deliver(quantity, delivered_on=date(2026, 10, index))
+
+        self.assertEqual(self.order.delivered_quantity, 10)
+        self.assertEqual(self.order.remaining_quantity, 0)
+        self.assertTrue(self.order.is_fully_delivered)
+        self.assertEqual(self.order.delivery_percent, 100)
+
+        # Four separate visits on four separate dates, not one counter.
+        deliveries = list(self.order.deliveries.all())
+        self.assertEqual(len(deliveries), 4)
+        self.assertEqual([d.total_quantity for d in deliveries], [2, 4, 2, 2])
+        self.assertEqual(
+            [d.delivered_on for d in deliveries],
+            [date(2026, 10, 1), date(2026, 10, 2), date(2026, 10, 3), date(2026, 10, 4)],
+        )
+
+    def test_progress_is_derived_not_stored(self):
+        self.deliver(2)
+        self.assertEqual(self.order.total_quantity, 10)
+        self.assertEqual(self.order.delivered_quantity, 2)
+        self.assertEqual(self.order.remaining_quantity, 8)
+        self.assertEqual(self.order.delivery_percent, 20)
+        self.assertFalse(self.order.is_fully_delivered)
+
+        # Derivation means it follows an edit to the ordered quantity.
+        self.item.quantity = 8
+        self.item.save(update_fields=["quantity"])
+        self.assertEqual(self.order.remaining_quantity, 6)
+        self.assertEqual(self.order.delivery_percent, 25)
+
+    def test_partials_are_summed_across_items(self):
+        second = OrderItem.objects.create(
+            order=self.order, description="Saree blouse", quantity=5, price=Decimal("80")
+        )
+        self.deliver(3)
+        record_delivery(self.order, [(second, 5)])
+        self.assertEqual(self.order.delivered_quantity, 8)
+        self.assertEqual(self.order.total_quantity, 15)
+
+    # ------------------------------------------------------------ validation
+
+    def test_over_delivery_is_refused(self):
+        self.deliver(6)
+        with self.assertRaises(ValueError):
+            self.deliver(5)
+        # Nothing was written on the rejected attempt.
+        self.assertEqual(self.order.delivered_quantity, 6)
+
+    def test_over_delivery_names_what_is_short(self):
+        self.deliver(8)
+        with self.assertRaisesRegex(ValueError, r'Only 2 of "Blouse" remain undelivered'):
+            self.deliver(3)
+
+    def test_a_line_from_another_order_cannot_be_delivered(self):
+        other = Order.objects.create(customer=self.customer)
+        other_item = OrderItem.objects.create(order=other, description="Saree", quantity=1)
+        with self.assertRaises(ValueError):
+            record_delivery(self.order, [(other_item, 1)])
+        self.assertEqual(DeliveryLine.objects.count(), 0)
+
+    def test_a_delivery_with_no_lines_is_refused(self):
+        with self.assertRaises(ValueError):
+            record_delivery(self.order, [])
+
+    def test_zero_and_negative_counts_are_refused(self):
+        for bad in (0, -1):
+            with self.assertRaises(ValueError):
+                self.deliver(bad)
+        self.assertEqual(self.order.delivered_quantity, 0)
+
+    # --------------------------------------------------------------- staging
+
+    def test_the_last_delivery_advances_the_stage(self):
+        self.deliver(10)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.stage, OrderStage.DELIVERED)
+        # Recorded in the audit trail rather than silently reassigned.
+        self.assertTrue(
+            self.order.stage_history.filter(to_stage=OrderStage.DELIVERED).exists()
+        )
+
+    def test_a_partial_delivery_leaves_the_stage_alone(self):
+        self.deliver(4)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.stage, OrderStage.READY)
+
+    def test_delivery_cannot_skip_the_stage_machine(self):
+        """Legal to record, but not to jump measurement -> delivered."""
+        self.order.stage = OrderStage.STITCHING
+        self.order.save(update_fields=["stage"])
+        self.deliver(10)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.stage, OrderStage.STITCHING)
+
+    def test_an_order_without_items_is_never_fully_delivered(self):
+        """0 ordered and 0 delivered must not read as "everything handed
+        over" - itemising is optional, so this is an ordinary order."""
+        bare = Order.objects.create(customer=self.customer, stage=OrderStage.READY)
+        self.assertEqual(bare.total_quantity, 0)
+        self.assertFalse(bare.is_fully_delivered)
+        self.assertEqual(bare.delivery_percent, 0)
+
+    # ----------------------------------------------------------------- views
+
+    def post_delivery(self, **overrides):
+        payload = {
+            "item_id": [str(self.item.id)],
+            "quantity": ["3"],
+            "delivered_on": "2026-10-01",
+        }
+        payload.update(overrides)
+        return self.client.post(
+            reverse("orders:delivery_add", args=[self.order.id]), payload, follow=True
+        )
+
+    def test_posting_a_delivery_records_it(self):
+        response = self.post_delivery()
+        self.assertContains(response, "Delivery recorded.")
+        delivery = self.order.deliveries.get()
+        self.assertEqual(delivery.total_quantity, 3)
+        self.assertEqual(delivery.delivered_on, date(2026, 10, 1))
+        self.assertEqual(delivery.recorded_by, self.user)
+        self.assertEqual(self.order.delivered_quantity, 3)
+
+    def test_over_delivery_from_the_form_is_refused_and_reported(self):
+        self.deliver(8)
+        response = self.post_delivery(quantity=["5"])
+        self.assertContains(response, "remain undelivered")
+        self.assertEqual(self.order.delivered_quantity, 8)
+
+    def test_boxes_left_blank_are_skipped_not_rejected(self):
+        """Filling in one line out of three is the normal case."""
+        second = OrderItem.objects.create(
+            order=self.order, description="Saree blouse", quantity=5, price=Decimal("80")
+        )
+        response = self.post_delivery(
+            item_id=[str(self.item.id), str(second.id)],
+            quantity=["", "4"],
+        )
+        self.assertContains(response, "Delivery recorded.")
+        self.assertEqual(self.order.delivered_quantity, 4)
+
+    def test_all_boxes_blank_is_refused(self):
+        response = self.post_delivery(quantity=[""])
+        self.assertContains(response, "Enter how many")
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_a_non_numeric_count_is_refused(self):
+        response = self.post_delivery(quantity=["two"])
+        self.assertContains(response, "not a whole number")
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_another_orders_line_cannot_be_posted(self):
+        other = Order.objects.create(customer=self.customer)
+        other_item = OrderItem.objects.create(order=other, description="Saree", quantity=1)
+        response = self.post_delivery(item_id=[str(other_item.id)], quantity=["1"])
+        self.assertContains(response, "does not belong to this order")
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_an_invalid_date_is_refused(self):
+        response = self.post_delivery(delivered_on="not-a-date")
+        self.assertContains(response, "not a real date")
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_a_blank_date_defaults_to_today(self):
+        response = self.post_delivery(delivered_on="")
+        self.assertContains(response, "Delivery recorded.")
+        self.assertEqual(self.order.deliveries.get().delivered_on, date.today())
+
+    # ----------------------------------------------------------------- pages
+
+    def test_order_page_shows_the_card_and_progress_bar(self):
+        self.deliver(5)
+        response = self.client.get(reverse("orders:detail", args=[self.order.id]))
+        self.assertContains(response, "Deliveries")
+        self.assertContains(response, "Record a delivery")
+        self.assertContains(response, "5/10 delivered")
+        self.assertContains(response, "Delivery progress")
+        self.assertContains(response, "width: 50%")
+        self.assertContains(response, "5 of 10 still to hand over")
+
+    def test_order_page_lists_each_hand_over(self):
+        self.deliver(2, delivered_on=date(2026, 10, 1), note="first two")
+        response = self.client.get(reverse("orders:detail", args=[self.order.id]))
+        self.assertContains(response, "01 Oct 2026")
+        self.assertContains(response, "2&times; Blouse")
+        self.assertContains(response, "first two")
+
+    def test_an_order_without_items_gets_no_delivery_card(self):
+        bare = Order.objects.create(customer=self.customer)
+        response = self.client.get(reverse("orders:detail", args=[bare.id]))
+        self.assertNotContains(response, "Record a delivery")
+        self.assertNotContains(response, "Delivery progress")
+
+    def test_board_card_shows_delivery_progress(self):
+        self.deliver(2)
+        response = self.client.get(reverse("orders:board"))
+        self.assertContains(response, "2/10 delivered")
+
+    def test_board_card_hides_progress_when_nothing_is_itemised(self):
+        Order.objects.create(customer=self.customer, stage=OrderStage.READY)
+        response = self.client.get(reverse("orders:board"))
+        self.assertNotContains(response, "0/0 delivered")
+
+    def test_tracking_page_shows_what_was_handed_over(self):
+        self.deliver(2, delivered_on=date(2026, 10, 1))
+        response = self.client.get(reverse("orders:track", args=[self.order.track_token]))
+        self.assertContains(response, "Handed over so far")
+        self.assertContains(response, "2&times; Blouse")
+        self.assertContains(response, "8 pieces still to come")
+        self.assertContains(response, "width: 20%")
+
+    def test_tracking_page_hides_the_panel_when_nothing_is_itemised(self):
+        bare = Order.objects.create(customer=self.customer)
+        response = self.client.get(reverse("orders:track", args=[bare.track_token]))
+        self.assertNotContains(response, "Handed over so far")

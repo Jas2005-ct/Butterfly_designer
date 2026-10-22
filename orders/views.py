@@ -9,6 +9,7 @@ from django.db.models import Count, Prefetch, Q
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_http_methods, require_POST
 
 from .models import (
@@ -24,6 +25,7 @@ from .services import (
     STAGE_ORDER,
     VALID_NEXT_STAGES,
     advance_stage,
+    record_delivery,
     snapshot_measurements,
     stage_labels_for,
 )
@@ -200,6 +202,64 @@ ITEM_MATERIAL_CHOICES = [
 ]
 
 
+def _delivery_lines_from_post(request, order):
+    """Read the record-delivery form into (item, quantity) pairs.
+
+    Every ordered item gets a box, and staff fill in only the ones going out
+    today - "2 of the 10 blouses" is the normal case, so a blank or zero box
+    means *not in this visit* rather than an error. Anything typed that is
+    not a positive whole number is refused, because guessing at a count of
+    pieces already handed over is how a delivery record stops matching the
+    shelf.
+
+    Rows are matched against `order.items` rather than fetched by id alone:
+    a hand-crafted POST must not be able to attach another customer's line
+    to this delivery.
+
+    Args:
+        request: the POST request.
+        order: the Order whose items are eligible.
+
+    Returns:
+        (pairs, error) - pairs is a list of (OrderItem, int) ready for
+        record_delivery, or None when error carries a user-facing message.
+    """
+    item_ids = request.POST.getlist("item_id")
+    quantities = request.POST.getlist("quantity")
+
+    if len(item_ids) != len(quantities):
+        return None, "The delivery form came back incomplete - please reload."
+
+    wanted = {}
+    for raw_id, raw_quantity in zip(item_ids, quantities):
+        if not (raw_id or "").strip():
+            continue
+        raw_quantity = (raw_quantity or "").strip()
+        if raw_quantity in ("", "0"):
+            continue  # untouched: this line is not part of the visit
+        try:
+            quantity = int(raw_quantity)
+        except ValueError:
+            return None, f'Quantity "{raw_quantity}" is not a whole number.'
+        if quantity < 1:
+            return None, "A delivery must hand over at least one piece."
+        try:
+            item_id = int(raw_id)
+        except ValueError:
+            return None, "The delivery form came back unreadable - please reload."
+        wanted[item_id] = quantity
+
+    if not wanted:
+        return None, "Enter how many of each item are being handed over."
+
+    found = {item.id: item for item in order.items.filter(id__in=wanted)}
+    if set(wanted) - set(found):
+        # An id that resolves to nothing, or to another order's line.
+        return None, "That line does not belong to this order - please reload."
+
+    return [(found[item_id], wanted[item_id]) for item_id in wanted], None
+
+
 def _stage_button_context(order, user):
     """Shared context for the _stage_buttons.html partial.
 
@@ -317,7 +377,11 @@ def _board_context(request, params):
     orders_qs = (
         Order.objects.select_related("customer")
         .prefetch_related(
-            Prefetch("stage_history", queryset=OrderStageHistory.objects.order_by("changed_at"))
+            Prefetch("stage_history", queryset=OrderStageHistory.objects.order_by("changed_at")),
+            # The card's 📦 2/10 badge walks both of these; without the
+            # prefetch it would be two extra queries per card, every load.
+            "items",
+            "deliveries__lines",
         )
         .order_by("-created_at")
     )
@@ -586,13 +650,64 @@ def order_create(request):
 def order_detail(request, order_id):
     """Order detail with stage buttons (HTMX) and inline payment form (Phase 3)."""
     order = get_object_or_404(
-        Order.objects.select_related("customer", "created_by").prefetch_related("items", "stage_history__changed_by"),
+        Order.objects.select_related("customer", "created_by").prefetch_related(
+            "items",
+            # Deep enough that the Deliveries card needs no further queries:
+            # the visit's lines, their item descriptions, and the per-line
+            # remaining count on the form all arrive here.
+            "deliveries__lines__order_item",
+            "items__delivery_lines",
+            "stage_history__changed_by",
+        ),
         id=order_id,
     )
     context = {"order": order, "shop": About.objects.first()}
     context.update(_detail_status_context(order, request.user))
     context.update(payment_section_context(order))
     return render(request, "shop/orders/detail.html", context)
+
+
+@login_required
+@require_POST
+def order_delivery_add(request, order_id):
+    """POST: record one hand-over visit, then return to the order page.
+
+    Deliberately a full round trip rather than an HTMX partial swap: the last
+    delivery can move the stage, which changes the stepper, the stage buttons,
+    the timeline, the progress bar and the board card all at once. One reload
+    refreshes every one of them; a partial response would have to name each
+    target and would go stale the next time the page gains a panel.
+    """
+    order = get_object_or_404(Order, id=order_id)
+
+    pairs, error = _delivery_lines_from_post(request, order)
+    if error:
+        messages.error(request, error)
+        return redirect("orders:detail", order_id=order.id)
+
+    raw_date = (request.POST.get("delivered_on") or "").strip()
+    if raw_date:
+        delivered_on = parse_date(raw_date)
+        if delivered_on is None:
+            messages.error(request, "That hand-over date is not a real date.")
+            return redirect("orders:detail", order_id=order.id)
+    else:
+        delivered_on = timezone.localdate()
+
+    try:
+        record_delivery(
+            order,
+            pairs,
+            delivered_on=delivered_on,
+            note=(request.POST.get("note") or "").strip(),
+            recorded_by=request.user,
+        )
+    except ValueError as e:
+        messages.error(request, str(e))
+        return redirect("orders:detail", order_id=order.id)
+
+    messages.success(request, "Delivery recorded.")
+    return redirect("orders:detail", order_id=order.id)
 
 
 @login_required
