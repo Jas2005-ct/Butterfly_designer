@@ -158,11 +158,11 @@ class DuesViewTests(TestCase):
 
     def test_dues_lists_only_positive_balances(self):
         owing = Order.objects.create(
-            customer=self.customer, total=Decimal("500.00"), stage=OrderStage.CUTTING
+            customer=self.customer, total=Decimal("500.00"), stage=OrderStage.STITCHING
         )
         record_payment(owing, "200", PaymentMode.CASH, self.user)
         settled = Order.objects.create(
-            customer=self.customer, total=Decimal("300.00"), stage=OrderStage.CUTTING
+            customer=self.customer, total=Decimal("300.00"), stage=OrderStage.STITCHING
         )
         record_payment(settled, "300", PaymentMode.CASH, self.user)
         delivered = Order.objects.create(
@@ -179,11 +179,11 @@ class DuesViewTests(TestCase):
 
     def test_dues_sort_by_balance(self):
         small = Order.objects.create(
-            customer=self.customer, total=Decimal("500.00"), stage=OrderStage.CUTTING
+            customer=self.customer, total=Decimal("500.00"), stage=OrderStage.STITCHING
         )
         record_payment(small, "400", PaymentMode.CASH, self.user)  # 100 due
         big = Order.objects.create(
-            customer=self.customer, total=Decimal("2000.00"), stage=OrderStage.CUTTING
+            customer=self.customer, total=Decimal("2000.00"), stage=OrderStage.STITCHING
         )
         record_payment(big, "100", PaymentMode.CASH, self.user)  # 1900 due
 

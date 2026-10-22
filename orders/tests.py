@@ -1,5 +1,7 @@
 from datetime import timedelta
+from importlib import import_module
 
+from django.apps import apps as django_apps
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
@@ -15,6 +17,12 @@ from orders.models import (
     generate_order_number,
 )
 from orders.services import advance_stage, can_transition, VALID_NEXT_STAGES
+
+# The migration module is named 0002_simplify_stages, which starts with a
+# digit, so it can only be reached through import_module(). Pulling the
+# function out directly lets the tests exercise the real remap against the
+# real database - see StageRemapMigrationTests.
+fold_removed_stages = import_module("orders.migrations.0002_simplify_stages").fold_removed_stages
 
 
 class OrderModelTests(TestCase):
@@ -50,10 +58,29 @@ class OrderModelTests(TestCase):
         history = OrderStageHistory.objects.create(
             order=order,
             from_stage="",
-            to_stage=OrderStage.CUTTING,
+            to_stage=OrderStage.STITCHING,
             changed_by=self.user,
         )
-        self.assertIn("cutting", str(history))
+        self.assertIn("stitching", str(history))
+
+    def test_legacy_stage_history_rows_still_render(self):
+        """Rows written before the four-stage model keep rendering.
+
+        "cutting"/"fitting" are no longer in OrderStage.choices, so Django's
+        get_FOO_display falls back to the raw slug and str() still mentions
+        it. This is the audit-trail guarantee: orders/0002 leaves Stage
+        History untouched, so those values must remain readable forever.
+        """
+        order = Order.objects.create(customer=self.customer)
+        for legacy in ("cutting", "fitting"):
+            with self.subTest(stage=legacy):
+                history = OrderStageHistory.objects.create(
+                    order=order,
+                    from_stage="",
+                    to_stage=legacy,
+                    changed_by=self.user,
+                )
+                self.assertIn(legacy, str(history))
 
 
 class OrderStageMachineTests(TestCase):
@@ -65,19 +92,13 @@ class OrderStageMachineTests(TestCase):
         self.customer = Customer.objects.create(name="Test Customer", phone="9876543210")
 
     def test_forward_transitions_allowed(self):
-        """All forward transitions in lifecycle are allowed."""
+        """All forward transitions in the four-stage lifecycle are allowed:
+        measurement -> stitching -> ready -> delivered.
+        """
         order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
-        advance_stage(order, OrderStage.CUTTING, self.user)
-        order.refresh_from_db()
-        self.assertEqual(order.stage, OrderStage.CUTTING)
-
         advance_stage(order, OrderStage.STITCHING, self.user)
         order.refresh_from_db()
         self.assertEqual(order.stage, OrderStage.STITCHING)
-
-        advance_stage(order, OrderStage.FITTING, self.user)
-        order.refresh_from_db()
-        self.assertEqual(order.stage, OrderStage.FITTING)
 
         advance_stage(order, OrderStage.READY, self.user)
         order.refresh_from_db()
@@ -89,20 +110,20 @@ class OrderStageMachineTests(TestCase):
 
     def test_backward_transition_requires_note(self):
         """Moving backward requires a note."""
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.READY)
 
         # Without note - should fail
         with self.assertRaises(ValueError):
-            advance_stage(order, OrderStage.CUTTING, self.user)
+            advance_stage(order, OrderStage.STITCHING, self.user)
 
         # With note - should succeed
-        advance_stage(order, OrderStage.CUTTING, self.user, note="Customer requested change")
+        advance_stage(order, OrderStage.STITCHING, self.user, note="Customer requested change")
         order.refresh_from_db()
-        self.assertEqual(order.stage, OrderStage.CUTTING)
+        self.assertEqual(order.stage, OrderStage.STITCHING)
 
     def test_cancel_requires_note(self):
         """Cancelling requires a note."""
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.FITTING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.READY)
         with self.assertRaises(ValueError):
             advance_stage(order, OrderStage.CANCELLED, self.user)
 
@@ -121,30 +142,99 @@ class OrderStageMachineTests(TestCase):
     def test_history_recorded(self):
         """Each transition creates a history record."""
         order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
-        advance_stage(order, OrderStage.CUTTING, self.user, note="Cutting started")
+        advance_stage(order, OrderStage.STITCHING, self.user, note="Stitching started")
 
         history = OrderStageHistory.objects.filter(order=order)
         self.assertEqual(history.count(), 1)
         h = history.first()
         self.assertEqual(h.from_stage, OrderStage.MEASUREMENT)
-        self.assertEqual(h.to_stage, OrderStage.CUTTING)
+        self.assertEqual(h.to_stage, OrderStage.STITCHING)
         self.assertEqual(h.changed_by, self.user)
-        self.assertEqual(h.note, "Cutting started")
+        self.assertEqual(h.note, "Stitching started")
 
     def test_can_transition_helper(self):
-        """can_transition helper works correctly."""
-        self.assertTrue(can_transition(OrderStage.MEASUREMENT, OrderStage.CUTTING))
-        self.assertTrue(can_transition(OrderStage.CUTTING, OrderStage.STITCHING))
-        self.assertFalse(can_transition(OrderStage.MEASUREMENT, OrderStage.STITCHING))  # skip not allowed
+        """can_transition helper works correctly on the four-stage graph."""
+        self.assertTrue(can_transition(OrderStage.MEASUREMENT, OrderStage.STITCHING))
+        self.assertTrue(can_transition(OrderStage.STITCHING, OrderStage.READY))
+        self.assertFalse(can_transition(OrderStage.MEASUREMENT, OrderStage.READY))  # skip not allowed
         self.assertFalse(can_transition(OrderStage.DELIVERED, OrderStage.MEASUREMENT))  # backward not allowed for non-admin
+
+    def test_removed_stages_have_no_transitions(self):
+        """Cutting and fitting are gone: nothing may still target them.
+
+        Guards against a stale VALID_NEXT_STAGES entry or a template branch
+        resurrecting a stage the data migration has already folded away.
+        """
+        for gone in ("cutting", "fitting"):
+            with self.subTest(stage=gone):
+                self.assertFalse(gone in OrderStage.values)
+                for frm in OrderStage.values:
+                    self.assertNotIn(
+                        gone,
+                        VALID_NEXT_STAGES.get(frm, set()),
+                        f"{frm} still offers {gone}",
+                    )
 
     def test_reopen_cancelled(self):
         """Cancelled order can be reopened to measurement."""
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.FITTING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.READY)
         advance_stage(order, OrderStage.CANCELLED, self.user, note="Customer changed mind")
         advance_stage(order, OrderStage.MEASUREMENT, self.user, note="Customer returned")
         order.refresh_from_db()
         self.assertEqual(order.stage, OrderStage.MEASUREMENT)
+
+
+class StageRemapMigrationTests(TestCase):
+    """orders/0002_simplify_stages - the only data-moving change in this branch.
+
+    Exercised by calling the migration's own function rather than through
+    MigrationExecutor: fold_removed_stages only rewrites Order.stage, so
+    running it against the real test database proves the same behaviour
+    without rolling migrations backwards and forwards mid-suite.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="mgr", password="secret123")
+        self.customer = Customer.objects.create(name="Test Customer", phone="9876543210")
+
+    def test_cutting_and_fitting_orders_fold_into_stitching(self):
+        cutting = Order.objects.create(customer=self.customer, stage="cutting")
+        fitting = Order.objects.create(customer=self.customer, stage="fitting")
+        stitching = Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
+        delivered = Order.objects.create(customer=self.customer, stage=OrderStage.DELIVERED)
+
+        fold_removed_stages(django_apps, None)
+
+        for order, expected in (
+            (cutting, OrderStage.STITCHING),
+            (fitting, OrderStage.STITCHING),
+            (stitching, OrderStage.STITCHING),
+            (delivered, OrderStage.DELIVERED),
+        ):
+            with self.subTest(expected=expected):
+                order.refresh_from_db()
+                self.assertEqual(order.stage, expected)
+
+    def test_stage_history_is_left_untouched(self):
+        """History is an audit trail: rewriting it would claim milestones the
+        order never reached. Cutting/fitting rows must survive verbatim while
+        the order itself moves to stitching.
+        """
+        order = Order.objects.create(customer=self.customer, stage="fitting")
+        OrderStageHistory.objects.create(
+            order=order,
+            from_stage="cutting",
+            to_stage="fitting",
+            changed_by=self.user,
+        )
+
+        fold_removed_stages(django_apps, None)
+
+        history = OrderStageHistory.objects.get(order=order)
+        self.assertEqual(history.from_stage, "cutting")
+        self.assertEqual(history.to_stage, "fitting")
+        order.refresh_from_db()
+        self.assertEqual(order.stage, OrderStage.STITCHING)
 
 
 class OrderViewsTests(TestCase):
@@ -190,7 +280,7 @@ class OrderViewsTests(TestCase):
         order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
         response = self.client.post(
             reverse("orders:advance_stage", args=[order.id]),
-            {"to_stage": OrderStage.CUTTING},
+            {"to_stage": OrderStage.STITCHING},
             HTTP_HX_REQUEST="true",
         )
         self.assertEqual(response.status_code, 200)
@@ -218,7 +308,7 @@ class OrderViewsTests(TestCase):
     def test_board_overdue_badge(self):
         yesterday = timezone.now().date() - timedelta(days=1)
         order = Order.objects.create(
-            customer=self.customer, stage=OrderStage.CUTTING, promised_date=yesterday
+            customer=self.customer, stage=OrderStage.STITCHING, promised_date=yesterday
         )
         response = self.client.get(reverse("orders:board"))
         self.assertContains(response, "Overdue")
@@ -257,7 +347,7 @@ class BoardVolumeTests(TestCase):
     def test_card_advance_moves_forward(self):
         import json
 
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
         response = self.client.post(self.card_url(order), {}, HTTP_HX_REQUEST="true")
         self.assertEqual(response.status_code, 200)
         order.refresh_from_db()
@@ -273,21 +363,21 @@ class BoardVolumeTests(TestCase):
         user manually reloaded the page. It must now return the re-rendered
         board with correct counts in the same round trip.
         """
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
         response = self.client.post(self.card_url(order), {}, HTTP_HX_REQUEST="true")
         body = response.content.decode()
         self.assertNotEqual(body.strip(), "", "empty body forces a manual reload")
         self.assertIn("Order Board", body)
-        # The card moved out of cutting and now sits in stitching.
+        # The card moved out of measurement and now sits in stitching.
         self.assertIn(f'id="order-card-{order.id}"', body)
-        self.assertEqual(self.col_count(body, "cutting"), 0)
+        self.assertEqual(self.col_count(body, "measurement"), 0)
         self.assertEqual(self.col_count(body, "stitching"), 1)
 
     def test_card_advance_preserves_view_mode(self):
         """list/board, tab and search ride along as hidden inputs, so the
         re-render never yanks staff out of the view they were using.
         """
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
         response = self.client.post(
             self.card_url(order), {"view": "list", "tab": "active"}, HTTP_HX_REQUEST="true"
         )
@@ -297,7 +387,7 @@ class BoardVolumeTests(TestCase):
         self.assertIn('name="tab" value="active"', body)
 
     def test_card_advance_preserves_search_filter(self):
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
         response = self.client.post(
             self.card_url(order), {"tab": "active", "q": "9876543210"}, HTTP_HX_REQUEST="true"
         )
@@ -323,7 +413,7 @@ class BoardVolumeTests(TestCase):
         carry the hidden view state. The POST-based tests above send those
         values directly, so they would not notice them missing from the HTML.
         """
-        Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
         html = self.client.get(
             reverse("orders:board") + "?tab=active&view=list&q=987"
         ).content.decode()
@@ -336,11 +426,12 @@ class BoardVolumeTests(TestCase):
         self.assertIn('name="q" value="987"', form)
 
     def test_card_advance_chains(self):
+        """Two taps walk the whole first half: measurement -> stitching -> ready."""
         order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
         self.client.post(self.card_url(order), HTTP_HX_REQUEST="true")
         self.client.post(self.card_url(order), HTTP_HX_REQUEST="true")
         order.refresh_from_db()
-        self.assertEqual(order.stage, OrderStage.STITCHING)
+        self.assertEqual(order.stage, OrderStage.READY)
 
     def test_card_advance_terminal_returns_400(self):
         for stage in (OrderStage.DELIVERED, OrderStage.CANCELLED):
@@ -352,7 +443,7 @@ class BoardVolumeTests(TestCase):
 
     def test_card_advance_ignores_tampered_stage(self):
         """A forged to_stage cannot skip, reverse, or cancel from the card."""
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
         response = self.client.post(
             self.card_url(order), {"to_stage": OrderStage.CANCELLED}, HTTP_HX_REQUEST="true"
         )
@@ -361,14 +452,14 @@ class BoardVolumeTests(TestCase):
         self.assertEqual(order.stage, OrderStage.STITCHING)
 
     def test_card_advance_requires_post_and_login(self):
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
         self.assertEqual(self.client.get(self.card_url(order)).status_code, 405)
         self.client.logout()
         response = self.client.post(self.card_url(order))
         self.assertEqual(response.status_code, 302)
 
     def test_list_view_renders_rows(self):
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
         response = self.client.get(reverse("orders:board") + "?view=list")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'id="order-row-{order.id}"')
@@ -376,7 +467,7 @@ class BoardVolumeTests(TestCase):
 
     def test_column_cap_and_show_all(self):
         for _ in range(12):
-            Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+            Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
         response = self.client.get(reverse("orders:board"))
         html = response.content.decode()
         self.assertEqual(html.count('id="order-card-'), 10)
@@ -388,10 +479,10 @@ class BoardVolumeTests(TestCase):
         yesterday = timezone.now().date() - timedelta(days=1)
         tomorrow = timezone.now().date() + timedelta(days=1)
         fresh = Order.objects.create(
-            customer=self.customer, stage=OrderStage.CUTTING, promised_date=tomorrow
+            customer=self.customer, stage=OrderStage.STITCHING, promised_date=tomorrow
         )
         overdue = Order.objects.create(
-            customer=self.customer, stage=OrderStage.CUTTING, promised_date=yesterday
+            customer=self.customer, stage=OrderStage.STITCHING, promised_date=yesterday
         )
         html = self.client.get(reverse("orders:board")).content.decode()
         self.assertLess(html.index(overdue.order_number), html.index(fresh.order_number))
@@ -429,12 +520,12 @@ class BoardVolumeTests(TestCase):
         order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
         response = self.client.post(
             reverse("orders:advance_stage", args=[order.id]),
-            {"to_stage": OrderStage.CUTTING},
+            {"to_stage": OrderStage.STITCHING},
             HTTP_HX_REQUEST="true",
         )
         self.assertEqual(response.status_code, 200)
         order.refresh_from_db()
-        self.assertEqual(order.stage, OrderStage.CUTTING)
+        self.assertEqual(order.stage, OrderStage.STITCHING)
 
     def test_create_order_invalid_total_rejected(self):
         response = self.client.post(
@@ -450,10 +541,10 @@ class BoardVolumeTests(TestCase):
 
     def test_stage_advance_invalid_returns_400(self):
         order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
-        # Skip stage
+        # Skip stage: stitching sits between measurement and ready
         response = self.client.post(
             reverse("orders:advance_stage", args=[order.id]),
-            {"to_stage": OrderStage.STITCHING},
+            {"to_stage": OrderStage.READY},
             HTTP_HX_REQUEST="true",
         )
         self.assertEqual(response.status_code, 400)
@@ -462,7 +553,7 @@ class BoardVolumeTests(TestCase):
 class TrackingViewTests(TestCase):
     def setUp(self):
         self.customer = Customer.objects.create(name="Track Customer", phone="9876543210")
-        self.order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        self.order = Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
 
     def test_track_page_no_login(self):
         """Public tracking page works without login."""
@@ -481,7 +572,7 @@ class TrackingViewTests(TestCase):
         url = reverse("orders:track", args=[self.order.track_token])
         response = self.client.get(url)
         self.assertContains(response, "Measurement")
-        self.assertContains(response, "Cutting")
+        self.assertContains(response, "Stitching")
         # Current stage should be highlighted
         self.assertContains(response, "Current")
 

@@ -13,9 +13,7 @@ def track_order(request, token):
     # Build milestone data for the chart
     stage_order = [
         OrderStage.MEASUREMENT,
-        OrderStage.CUTTING,
         OrderStage.STITCHING,
-        OrderStage.FITTING,
         OrderStage.READY,
         OrderStage.DELIVERED,
     ]
