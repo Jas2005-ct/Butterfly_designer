@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -5,7 +6,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from billing.models import PaymentMode
+from billing.models import Payment, PaymentMode
 from billing.services import record_payment
 from customers.models import Customer
 from orders.models import Order, OrderStage
@@ -30,7 +31,15 @@ class RevenueTests(TestCase):
         self.assertEqual(services.revenue_total(), Decimal("400"))
 
     def test_revenue_since_window(self):
-        record_payment(self.order, "400", PaymentMode.CASH, self.user)
+        payment = record_payment(self.order, "400", PaymentMode.CASH, self.user)
+        # Pin the payment one second into the past. The 0-day assertion below
+        # is otherwise a tie between the payment's timestamp and the
+        # timezone.now() cut-off evaluated a moment later: when both land on
+        # the same clock tick `created_at >= cut-off` holds and the window
+        # wrongly includes the payment (observed ~1 run in 6 before this pin).
+        Payment.objects.filter(pk=payment.pk).update(
+            created_at=timezone.now() - timedelta(seconds=1)
+        )
         self.assertEqual(services.revenue_since(30), Decimal("400"))
         self.assertEqual(services.revenue_since(0), Decimal("0"))
 
