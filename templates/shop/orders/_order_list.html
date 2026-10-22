@@ -18,7 +18,11 @@ advance as cards, ~3x denser. Expects flat_orders in context.
             </div>
             <div class="text-xs">
                 <span class="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700">{{ order.get_service_type_display }}</span>
-                {% if order.balance > 0 %}
+                {# Guarded, not merely styled: an unpriced order's balance is #}
+                {# None, and `None > 0` raises rather than being falsy. #}
+                {% if not order.is_priced %}
+                <span class="ml-1 font-medium text-slate-500">TBD</span>
+                {% elif order.balance > 0 %}
                 <span class="ml-1 font-bold text-indigo-700">₹{{ order.balance|floatformat:2 }}</span>
                 {% endif %}
             </div>

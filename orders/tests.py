@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 from decimal import Decimal
 from importlib import import_module
@@ -59,7 +60,10 @@ class OrderModelTests(TestCase):
         order = Order.objects.create(customer=self.customer)
         self.assertEqual(order.stage, OrderStage.MEASUREMENT)
         self.assertEqual(order.service_type, ServiceType.OTHER)
-        self.assertEqual(order.total, 0)
+        # None, not 0: an unpriced order is "not agreed yet", which is a
+        # different claim from "agreed to be free".
+        self.assertIsNone(order.total)
+        self.assertFalse(order.is_priced)
 
     def test_stage_history_str(self):
         order = Order.objects.create(customer=self.customer)
@@ -978,3 +982,143 @@ class OrderItemTests(TestCase):
         # says "Blouse with lining", so the word alone proves nothing.
         self.assertContains(response, 'value="Blouse"')
         self.assertContains(response, 'value="2"')
+
+
+class OptionalTotalTests(TestCase):
+    """A price may be agreed at any point, or never - the app must cope.
+
+    The client's own words were "the mentioned amount may varies", so the
+    total is no longer mandatory. Everything here checks that an unset total
+    reads as *unknown* rather than as zero, and that it can be filled in or
+    cleared later through the normal forms.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="mgr", password="secret123")
+        self.client.login(username="mgr", password="secret123")
+        self.customer = Customer.objects.create(name="Priya", phone="9876543210")
+
+    def test_create_with_a_blank_total_leaves_it_unset(self):
+        self.client.post(
+            reverse("orders:create"),
+            {"customer": str(self.customer.id), "service_type": "blouse", "total": ""},
+        )
+        order = Order.objects.get(customer=self.customer)
+        self.assertIsNone(order.total)
+        self.assertFalse(order.is_priced)
+
+    def test_create_without_a_total_field_at_all(self):
+        """A hand-rolled or older form need not send the key."""
+        self.client.post(
+            reverse("orders:create"), {"customer": str(self.customer.id)}
+        )
+        order = Order.objects.get(customer=self.customer)
+        self.assertIsNone(order.total)
+
+    def test_create_still_stores_an_agreed_total(self):
+        """Optional must not mean the field stopped working."""
+        self.client.post(
+            reverse("orders:create"),
+            {"customer": str(self.customer.id), "total": "500.00"},
+        )
+        order = Order.objects.get(customer=self.customer)
+        self.assertEqual(order.total, Decimal("500.00"))
+        self.assertTrue(order.is_priced)
+
+    def test_edit_can_set_a_total_that_was_never_agreed(self):
+        """The main flow: quote is agreed days after the order comes in."""
+        order = Order.objects.create(customer=self.customer)
+        self.client.post(
+            reverse("orders:edit", args=[order.id]),
+            {"customer": str(self.customer.id), "total": "1500.50"},
+        )
+        order.refresh_from_db()
+        self.assertEqual(order.total, Decimal("1500.50"))
+
+    def test_edit_clearing_the_total_unsets_it(self):
+        """Clearing the box means "not agreed", matching how Material Cost
+        already behaves on the very same form."""
+        order = Order.objects.create(customer=self.customer, total=Decimal("500"))
+        self.client.post(
+            reverse("orders:edit", args=[order.id]),
+            {"customer": str(self.customer.id), "total": ""},
+        )
+        order.refresh_from_db()
+        self.assertIsNone(order.total)
+
+    def test_is_priced_separates_zero_from_unset(self):
+        """The distinction the whole feature rests on: free is not 'unknown'."""
+        self.assertFalse(Order(customer=self.customer).is_priced)
+        self.assertTrue(Order(customer=self.customer, total=Decimal("0")).is_priced)
+
+    def total_input(self, response):
+        """The rendered <input name="total"> tag, so assertions can look inside
+        one element instead of pattern-matching the whole page.
+
+        Args:
+            response: the test client response for a create or edit form.
+
+        Returns:
+            str, or None when the field is somehow missing.
+        """
+        match = re.search(r"<input[^>]*name=\"total\"[^>]*>", response.content.decode())
+        return match.group(0) if match else None
+
+    def test_create_form_marks_total_as_optional(self):
+        response = self.client.get(reverse("orders:create"))
+        tag = self.total_input(response)
+        self.assertIsNotNone(tag)
+        # Checked inside the element: asserting the whole page lacks `required`
+        # would break the moment some other field legitimately becomes
+        # mandatory.
+        self.assertNotIn("required", tag)
+        # No asterisk on the label either.
+        self.assertNotContains(response, ">Total (₹) *</label>")
+
+    def test_edit_form_preserves_an_unset_total_as_an_empty_box(self):
+        """value="None" would be a genuine bug - it would post the string
+        'None' back and fail the money parser."""
+        order = Order.objects.create(customer=self.customer)
+        response = self.client.get(reverse("orders:edit", args=[order.id]))
+        tag = self.total_input(response)
+        self.assertIsNotNone(tag)
+        self.assertIn('value=""', tag)
+        self.assertNotIn("value=\"None\"", tag)
+
+    def test_edit_form_shows_an_existing_total(self):
+        order = Order.objects.create(customer=self.customer, total=Decimal("1234.50"))
+        response = self.client.get(reverse("orders:edit", args=[order.id]))
+        self.assertIn('value="1234.50"', self.total_input(response))
+
+    def test_board_card_says_amount_tbd(self):
+        Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
+        response = self.client.get(reverse("orders:board"))
+        self.assertContains(response, "Amount TBD")
+
+    def test_board_card_keeps_the_due_badge_for_priced_orders(self):
+        Order.objects.create(
+            customer=self.customer, stage=OrderStage.MEASUREMENT, total=Decimal("900")
+        )
+        response = self.client.get(reverse("orders:board"))
+        self.assertContains(response, "₹900.00 due")
+        self.assertNotContains(response, "Amount TBD")
+
+    def test_order_detail_says_total_not_set(self):
+        order = Order.objects.create(customer=self.customer)
+        response = self.client.get(reverse("orders:detail", args=[order.id]))
+        self.assertContains(response, "Total not set")
+        # The printed receipt is the risky surface: a ₹0.00 there would be a
+        # promise the shop never made.
+        self.assertContains(response, "To be confirmed")
+
+    def test_order_detail_still_prints_an_agreed_total(self):
+        order = Order.objects.create(customer=self.customer, total=Decimal("500"))
+        response = self.client.get(reverse("orders:detail", args=[order.id]))
+        self.assertContains(response, "₹500.00")
+        self.assertNotContains(response, "Total not set")
+        self.assertNotContains(response, "To be confirmed")
+
+    def test_customer_page_says_amount_tbd(self):
+        Order.objects.create(customer=self.customer)
+        response = self.client.get(reverse("customers:detail", args=[self.customer.id]))
+        self.assertContains(response, "Amount TBD")

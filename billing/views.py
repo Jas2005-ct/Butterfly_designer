@@ -17,13 +17,18 @@ def dues(request):
     Why: this is the "who owes us money" list the owner checks daily.
     Delivered/cancelled orders are excluded — their money is handled at
     handover, not as dues. Fully-paid open orders are excluded too.
+
+    Orders with no agreed price fall out of the balance list by themselves,
+    since their balance is None and None is not greater than zero. That is
+    correct for the money total but would hide the order from the report
+    entirely, so they get their own "Amount not set" group — an unpriced
+    order is precisely the one most likely to be forgotten.
     """
     sort = request.GET.get("sort", "promised")
-    orders_qs = (
+    open_orders = annotate_balances(
         Order.objects.exclude(stage__in=[OrderStage.DELIVERED, OrderStage.CANCELLED])
         .select_related("customer")
     )
-    orders_qs = annotate_balances(orders_qs).filter(balance__gt=0)
 
     sort_options = {
         "promised": F("promised_date").asc(nulls_last=True),
@@ -34,7 +39,12 @@ def dues(request):
     ordering = sort_options.get(sort, sort_options["promised"])
     if sort not in sort_options:
         sort = "promised"
-    orders_qs = orders_qs.order_by(ordering)
+
+    orders_qs = open_orders.filter(balance__gt=0).order_by(ordering)
+    # Same ordering as the main list for consistency. Under "Highest due" it
+    # amounts to nothing here — every row's balance is NULL — which is honest,
+    # since an unpriced order has no due to rank by.
+    unpriced_qs = open_orders.filter(total__isnull=True).order_by(ordering)
 
     outstanding = orders_qs.aggregate(total=Sum("balance"))["total"]
     if outstanding is None:
@@ -45,6 +55,7 @@ def dues(request):
         "shop/billing/dues.html",
         {
             "orders": orders_qs[:200],
+            "unpriced": unpriced_qs[:200],
             "sort": sort,
             "total_outstanding": outstanding,
         },

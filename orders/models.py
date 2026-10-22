@@ -69,7 +69,15 @@ class Order(models.Model):
     customer = models.ForeignKey("customers.Customer", on_delete=models.PROTECT, related_name="orders")
     service_type = models.CharField(max_length=20, choices=ServiceType.choices, default=ServiceType.OTHER)
     description = models.TextField(blank=True)
-    total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # Nullable on purpose: the client's own words were "the mentioned amount
+    # may varies", so a price is agreed as the job progresses and an order can
+    # exist before anyone has settled on one. Default None rather than 0,
+    # because 0 reads as "agreed to be free", which is a very different claim
+    # from "not agreed yet" - billing.services.order_balance returns None for
+    # these rather than 0, and the dues report counts them separately.
+    total = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, default=None
+    )
     material_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     promised_date = models.DateField(null=True, blank=True)
     stage = models.CharField(max_length=20, choices=OrderStage.choices, default=OrderStage.MEASUREMENT)
@@ -91,6 +99,21 @@ class Order(models.Model):
         if not self.order_number:
             self.order_number = generate_order_number()
         super().save(*args, **kwargs)
+
+    @property
+    def is_priced(self):
+        """Whether a price has been agreed for this order.
+
+        Why a property rather than repeating `total is None` in templates:
+        half a dozen places need to tell "not agreed yet" apart from "agreed
+        at zero", and one named question reads better than that test copied
+        around — and unlike the raw test, it can be reasoned about.
+
+        Returns:
+            bool. False when the total was never set, which is not the same
+            thing as an order priced at zero.
+        """
+        return self.total is not None
 
     @property
     def material_source(self):

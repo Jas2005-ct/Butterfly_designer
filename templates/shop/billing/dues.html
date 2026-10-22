@@ -68,4 +68,39 @@
     <p class="text-sm mt-1">Every open order is fully paid.</p>
 </div>
 {% endif %}
+
+{# Separate group on purpose: these orders carry no balance at all, so the #}
+{# list above omits them silently. An unpriced order is exactly the one most #}
+{# likely to be forgotten, and forgetting it means never charging for it. #}
+{% if unpriced %}
+<div class="mt-8">
+    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+        <h2 class="text-lg font-bold">Amount not set</h2>
+        <span class="text-sm text-slate-500">{{ unpriced|length }} open orders with no agreed price</span>
+    </div>
+    <p class="text-sm text-slate-500 mb-3">
+        These don't count towards the total above — set a total on the order to move it into the list.
+    </p>
+    <ul class="space-y-2">
+        {% for order in unpriced %}
+        <li class="bg-white rounded-xl border border-slate-200 p-4">
+            <a href="{% url 'orders:detail' order.id %}" class="flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                    <div class="font-medium truncate">{{ order.order_number }} · {{ order.customer.name }}</div>
+                    <div class="text-sm text-slate-500">
+                        {{ order.customer.phone }}
+                        {% if order.promised_date %} · 📅 {{ order.promised_date|date:"d M Y" }}{% endif %}
+                        · {{ order.get_stage_display }}
+                    </div>
+                </div>
+                <div class="text-right flex-shrink-0">
+                    <div class="font-bold text-lg text-slate-400">TBD</div>
+                    <div class="text-xs text-slate-500">paid ₹{{ order.paid|floatformat:2 }}</div>
+                </div>
+            </a>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
 {% endblock %}

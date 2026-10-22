@@ -31,10 +31,24 @@ def total_paid(order):
 def order_balance(order):
     """Return total − paid (positive = due, zero = settled, negative = overpaid).
 
-    Why: every money display in the app derives from this one function.
+    Why one function: every money display in the app derives from it, so the
+    board badge, the order page and the dues report can never disagree.
+
+    Why None rather than 0 when no total has been agreed: 0 reads as "settled
+    in full", which is exactly backwards for an order whose price is still
+    open. Callers must treat None as "not counted yet" — the board badges it
+    as Amount TBD and the dues report files it under its own heading rather
+    than quietly dropping it.
+
+    Args:
+        order: the Order to price up. Its total may be None.
+
+    Returns:
+        Decimal, or None when no total has been agreed for this order.
     """
-    total = order.total if order.total is not None else Decimal("0")
-    return total - total_paid(order)
+    if order.total is None:
+        return None
+    return order.total - total_paid(order)
 
 
 def record_payment(order, amount, mode, recorded_by, note=""):
@@ -78,6 +92,11 @@ def annotate_balances(queryset):
 
     Why: board badges and the dues report need per-order money without
     N+1 queries — one GROUP BY serves the whole list.
+
+    balance comes out as None when total is NULL, which is the answer
+    order_balance() gives for the same order — the SQL simply carries the
+    NULL through instead of inventing a zero. Templates therefore have to
+    guard before comparing: `None > 0` raises rather than being falsy.
     """
     # Two annotate() steps: referencing the paid alias inside the same call
     # works today but is fragile — the second call sees a resolved alias.
@@ -97,15 +116,17 @@ def payment_section_context(order):
 
     Why: the full-page render and the HTMX add-payment response must show
     identical figures — both build from this one function.
+
+    balance follows order_balance(), so it is None when the order has no
+    total yet. The template says so rather than printing ₹0.00 for a price
+    nobody has agreed.
     """
     payments = order.payments.select_related("recorded_by").order_by("-created_at")
-    paid = total_paid(order)
-    total = order.total if order.total is not None else Decimal("0")
     return {
         "order": order,
         "payments": payments,
         "payment_form": PaymentForm(),
         "payment_modes": PaymentMode.choices,
-        "paid": paid,
-        "balance": total - paid,
+        "paid": total_paid(order),
+        "balance": order_balance(order),
     }
