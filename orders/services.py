@@ -11,7 +11,9 @@ choke point for:
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Order, OrderStage, OrderStageHistory
+from customers.models import CustomerMeasurement, MeasurementFields
+
+from .models import Order, OrderMeasurement, OrderStage, OrderStageHistory
 
 
 VALID_NEXT_STAGES = {
@@ -131,3 +133,35 @@ def advance_stage(
     # notifications.emit_stage_changed(order, history)
 
     return history
+
+
+def snapshot_measurements(order):
+    """Freeze the customer's measurements onto a new order.
+
+    Why a copy rather than a pointer: a customer is re-measured constantly,
+    and an order that silently followed those edits would claim a blouse was
+    cut to numbers nobody used. Once written, this row is never touched
+    again - it is what the garment was actually made to.
+
+    Why a named function instead of inlining it in the view: order creation
+    is currently one view, but the rule "an order remembers what it was cut
+    to" deserves a single home, one test, and a name to point at.
+
+    Args:
+        order: the just-created Order. Its customer is read for measurements.
+
+    Returns:
+        The new OrderMeasurement, or None when the customer has never been
+        measured - which is normal and not an error, since plenty of orders
+        are taken before anyone puts a tape around anybody.
+    """
+    source = CustomerMeasurement.objects.filter(customer=order.customer).first()
+    if source is None:
+        return None
+
+    # Copy only the measurement columns, driven by the shared field list so
+    # adding a measurement later cannot leave the snapshot missing it.
+    values = {
+        attr: getattr(source, attr) for attr, _ in MeasurementFields.MEASUREMENT_LABELS
+    }
+    return OrderMeasurement.objects.create(order=order, **values)

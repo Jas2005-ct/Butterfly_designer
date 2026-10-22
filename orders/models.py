@@ -3,6 +3,8 @@ import uuid
 from django.db import models, transaction
 from django.utils import timezone
 
+from customers.models import MeasurementFields
+
 
 class OrderStage(models.TextChoices):
     # Four stages, as the shop runs them: measurement -> stitching -> ready ->
@@ -99,3 +101,22 @@ class OrderStageHistory(models.Model):
 
     def __str__(self):
         return f"{self.order.order_number}: {self.from_stage or 'new'} → {self.to_stage}"
+
+
+class OrderMeasurement(MeasurementFields):
+    """The measurements this order was cut to, frozen at order time.
+
+    Why a copy instead of reading them off the customer: measurements change.
+    A blouse cut to a 34 bust must still show 34 on a delivery three months
+    later, even though the customer has since been re-measured for something
+    else. The customer row stays live; this one is the record.
+
+    Written by orders.services::snapshot_measurements when the order is
+    created, and never touched again.
+    """
+
+    order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name="measurement")
+
+    def __str__(self):
+        return f"Measurements — {self.order.order_number}"
+

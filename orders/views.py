@@ -12,7 +12,14 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
 from .models import Order, OrderStage, OrderStageHistory, ServiceType
-from .services import STAGE_EMOJI, STAGE_ORDER, VALID_NEXT_STAGES, advance_stage, stage_labels_for
+from .services import (
+    STAGE_EMOJI,
+    STAGE_ORDER,
+    VALID_NEXT_STAGES,
+    advance_stage,
+    snapshot_measurements,
+    stage_labels_for,
+)
 from billing.services import annotate_balances, payment_section_context
 from butterfly_landing_page.models import About
 from customers.models import Customer
@@ -378,6 +385,11 @@ def order_create(request):
                 notes=notes,
                 created_by=request.user,
             )
+            # Freeze this customer's measurements onto the order, so the
+            # garment can still be checked against the numbers it was cut to
+            # even after the customer is re-measured. No-op when the customer
+            # has never been measured - plenty of orders are taken first.
+            snapshot_measurements(order)
         except ValidationError:
             messages.error(request, "Invalid total, material cost, or date. Please check the values.")
             return redirect("orders:create")

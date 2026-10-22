@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from importlib import import_module
 
 from django.apps import apps as django_apps
@@ -7,16 +8,22 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from customers.models import Customer
+from customers.models import Customer, CustomerMeasurement
 from orders.models import (
     Order,
     OrderItem,
+    OrderMeasurement,
     OrderStage,
     OrderStageHistory,
     ServiceType,
     generate_order_number,
 )
-from orders.services import advance_stage, can_transition, VALID_NEXT_STAGES
+from orders.services import (
+    VALID_NEXT_STAGES,
+    advance_stage,
+    can_transition,
+    snapshot_measurements,
+)
 
 # The migration module is named 0002_simplify_stages, which starts with a
 # digit, so it can only be reached through import_module(). Pulling the
@@ -637,3 +644,91 @@ class GenerateDummyDataCommandTests(TestCase):
         self.assertGreaterEqual(Customer.objects.count(), 3)
         self.assertGreaterEqual(Order.objects.count(), 5)
         self.assertTrue(OrderItem.objects.exists())
+
+
+class MeasurementSnapshotTests(TestCase):
+    """An order keeps the numbers it was cut to, forever.
+
+    The customer's own row stays live and gets re-typed at every fitting; the
+    order's copy is written once when the order is placed and never touched
+    again, so a garment can still be checked months later against what it was
+    actually made to.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="mgr", password="secret123")
+        self.client.login(username="mgr", password="secret123")
+        self.customer = Customer.objects.create(name="Priya", phone="9876543210")
+
+    def measure(self, **values):
+        """Give the customer a measurement row, defaulting to a fuller set."""
+        base = {"bust": Decimal("34"), "waist": Decimal("28"), "shoulder": Decimal("14.5")}
+        base.update(values)
+        return CustomerMeasurement.objects.create(customer=self.customer, **base)
+
+    def place_order(self):
+        """POST an order the way staff do, so the real view path is covered."""
+        return self.client.post(
+            reverse("orders:create"),
+            {"customer": str(self.customer.id), "total": "500"},
+        )
+
+    def test_order_create_snapshots_the_customer(self):
+        self.measure()
+        self.place_order()
+        order = Order.objects.get(customer=self.customer)
+        self.assertEqual(order.measurement.bust, Decimal("34"))
+        self.assertEqual(order.measurement.waist, Decimal("28"))
+        self.assertEqual(order.measurement.shoulder, Decimal("14.5"))
+
+    def test_order_create_without_measurements_stores_nothing(self):
+        """Plenty of orders are taken before anyone is measured."""
+        self.place_order()
+        order = Order.objects.get(customer=self.customer)
+        self.assertFalse(OrderMeasurement.objects.filter(order=order).exists())
+        # hasattr is False rather than raising, same as on the customer.
+        self.assertFalse(hasattr(order, "measurement"))
+
+    def test_snapshot_survives_the_customer_being_remeasured(self):
+        """The whole point: a garment is judged by what it was cut to."""
+        self.measure(bust=Decimal("34"))
+        self.place_order()
+        order = Order.objects.get(customer=self.customer)
+
+        self.customer.measurement.bust = Decimal("36")
+        self.customer.measurement.save()
+
+        order.measurement.refresh_from_db()
+        self.customer.measurement.refresh_from_db()
+        self.assertEqual(order.measurement.bust, Decimal("34"))
+        self.assertEqual(self.customer.measurement.bust, Decimal("36"))
+
+    def test_snapshot_is_a_copy_not_a_reference(self):
+        self.measure()
+        self.place_order()
+        order = Order.objects.get(customer=self.customer)
+
+        order.measurement.delete()
+
+        # Losing the order's copy must not take the customer's with it.
+        self.assertFalse(OrderMeasurement.objects.filter(order=order).exists())
+        self.customer.measurement.refresh_from_db()
+        self.assertEqual(self.customer.measurement.bust, Decimal("34"))
+
+    def test_order_detail_shows_the_frozen_numbers(self):
+        self.measure()
+        self.place_order()
+        order = Order.objects.get(customer=self.customer)
+        response = self.client.get(reverse("orders:detail", args=[order.id]))
+        self.assertContains(response, "Bust")
+        self.assertContains(response, "34.00")
+        # Explains why these can differ from the customer's current page.
+        self.assertContains(response, "Measured when this order was taken")
+
+    def test_unmeasured_order_grows_no_empty_card(self):
+        """Saree alterations and the like should not gain a blank panel."""
+        self.place_order()
+        order = Order.objects.get(customer=self.customer)
+        response = self.client.get(reverse("orders:detail", args=[order.id]))
+        self.assertNotContains(response, "Measured when this order was taken")
+        self.assertNotContains(response, "Bust")

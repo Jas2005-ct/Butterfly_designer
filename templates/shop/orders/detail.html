@@ -58,6 +58,20 @@
     {% endif %}
 </div>
 
+{# Only shown when something was measured, so saree alterations and other #}
+{# unmeasured orders don't grow an empty card. The note earns its place: #}
+{# these numbers are frozen and may differ from the customer's current ones, #}
+{# which otherwise reads as a bug. #}
+{% if order.measurement %}
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 print:hidden">
+    <p class="text-sm text-slate-500 mb-3">
+        Measured when this order was taken — kept as a record, so it may differ
+        from the customer's current measurements.
+    </p>
+    {% include "shop/customers/_measurement_list.html" with rows=order.measurement.measured %}
+</div>
+{% endif %}
+
 <!-- Stage Buttons (HTMX partial) -->
 <div id="stage-buttons" class="mb-5 print:hidden">
     {% include "shop/orders/_stage_buttons.html" %}
