@@ -7,7 +7,10 @@
       1. the GitHub OIDC provider (so CI authenticates without static keys),
       2. the `github-actions-deploy` IAM role used by the workflows in
          .github/workflows/,
-      3. the ECR repository that holds the application image.
+      3. the ECR repository that holds the application image,
+      4. the `butterfly-designer` IAM user, with the read-only `console-read`
+         policy (so the ECS/ECR consoles render) and the `ecs-deploy` policy
+         (so the CLI can manage the service without using root).
 
     It does NOT create billable compute: no Express service, no ALB, no Fargate
     task. Those are created deliberately, after review (docs/deployment-plan.md).
@@ -22,7 +25,8 @@ param(
     [string]$AccountId = '558948635923',
     [string]$Repository = 'butterfly-designer',
     [string]$RoleName = 'github-actions-deploy',
-    [string]$GitHubOrgRepo = 'Jas2005-ct/Butterfly_designer'
+    [string]$GitHubOrgRepo = 'Jas2005-ct/Butterfly_designer',
+    [string]$UserName = 'butterfly-designer'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -117,5 +121,48 @@ aws iam put-role-policy `
     --policy-document (Get-Content (Join-Path $here 'express-mode-extra-policy.json') -Raw) | Out-Null
 Write-Ok "inline policy 'express-mode-extra' attached"
 
+# --- 6. The IAM user used for console access and CLI deploys ---------------
+Write-Step "IAM user $UserName"
+if (aws iam get-user --user-name $UserName 2>$null) {
+    Write-Skip "user already exists"
+} else {
+    aws iam create-user --user-name $UserName | Out-Null
+    Write-Ok "user created"
+}
+
+Write-Step "Attaching console-read to $UserName"
+# A managed policy, not an inline one: the document is just over the 2048-byte
+# inline limit that IAM enforces on user policies, and managed policies allow
+# 6144 bytes.
+$consoleReadArn = "arn:aws:iam::${AccountId}:policy/ButterflyConsoleRead"
+$consoleReadDoc = Get-Content (Join-Path $here 'console-read-policy.json') -Raw
+$existing = aws iam get-policy --policy-arn $consoleReadArn 2>$null
+if ($existing) {
+    aws iam create-policy-version --policy-arn $consoleReadArn --policy-document $consoleReadDoc --set-as-default | Out-Null
+    Write-Ok "managed policy 'ButterflyConsoleRead' updated (new default version)"
+} else {
+    aws iam create-policy --policy-name ButterflyConsoleRead --policy-document $consoleReadDoc --description "Read-only access for the butterfly-designer IAM user so the ECS/ECR consoles render." | Out-Null
+    Write-Ok "managed policy 'ButterflyConsoleRead' created"
+}
+aws iam attach-user-policy --user-name $UserName --policy-arn $consoleReadArn
+Write-Ok "attached to $UserName"
+
+# Remove the superseded inline policy, if an earlier run created one.
+if (aws iam list-user-policies --user-name $UserName 2>$null | Select-String -Quiet "console-read") {
+    aws iam delete-user-policy --user-name $UserName --policy-name console-read
+    Write-Ok "removed the superseded inline 'console-read'"
+}
+
+Write-Step "Attaching ecs-deploy to $UserName"
+aws iam put-user-policy `
+    --user-name $UserName `
+    --policy-name ecs-deploy `
+    --policy-document (Get-Content (Join-Path $here 'ecs-deploy-policy.json') -Raw) | Out-Null
+Write-Ok "inline policy 'ecs-deploy' attached"
+
 Write-Host "`nDone. IAM needs ~1 minute to propagate before CI can assume the role." -ForegroundColor Green
 Write-Host "Next: build and push the image, then create the Express service (docs/deployment-plan.md section 6)." -ForegroundColor Green
+Write-Host "To deploy as the user instead of root, create an access key for it and set a local profile:" -ForegroundColor Green
+Write-Host "  aws iam create-access-key --user-name $UserName" -ForegroundColor DarkGray
+Write-Host "  aws configure set --profile $UserName aws_access_key_id <AKIA...>" -ForegroundColor DarkGray
+Write-Host "  aws configure set --profile $UserName aws_secret_access_key <secret>" -ForegroundColor DarkGray

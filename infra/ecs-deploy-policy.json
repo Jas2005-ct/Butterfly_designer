@@ -26,6 +26,8 @@
         "ecs:DescribeExpressGatewayService",
         "ecs:ListExpressGatewayServices",
         "ecs:DeleteExpressGatewayService",
+        "ecs:ListClusters",
+        "ecs:DescribeClusters",
         "ecs:CreateService",
         "ecs:UpdateService",
         "ecs:DescribeServices",
