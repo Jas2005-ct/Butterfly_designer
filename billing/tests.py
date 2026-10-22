@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -5,8 +6,9 @@ from django.test import TestCase
 from django.urls import reverse
 
 from customers.models import Customer
-from orders.models import Order, OrderStage
-from .models import Payment, PaymentMode
+from orders.models import Delivery, Order, OrderStage
+from .forms import PaymentForm
+from .models import Payment, PaymentKind, PaymentMode
 from .services import annotate_balances, order_balance, record_payment, total_paid
 
 
@@ -253,8 +255,11 @@ class UnpricedOrderTests(TestCase):
     def test_payment_panel_reports_an_unknown_balance(self):
         order = self.unpriced()
         response = self.client.get(reverse("orders:detail", args=[order.id]))
-        self.assertContains(response, "Amount not agreed yet")
-        self.assertContains(response, "TBD")
+        # "Amount TBD" names the situation, and the collected figure next to it
+        # stops the shop forgetting money it is already holding — the client
+        # raised both halves together: an unset total and advances taken anyway.
+        self.assertContains(response, "Amount TBD")
+        self.assertContains(response, "collected so far")
         # The three summaries must not read as a settled account.
         self.assertNotContains(response, "Paid in full")
 
@@ -292,3 +297,218 @@ class UnpricedOrderTests(TestCase):
         self.unpriced(stage=OrderStage.CANCELLED)
         response = self.client.get(reverse("billing:dues"))
         self.assertNotContains(response, "Amount not set")
+
+
+class DeliveryPaymentTests(TestCase):
+    """Branch 7 -- money arrives twice in this shop's life, and for two reasons.
+
+    The client: "paid a partial amount one each delivery and they may give any
+    advance while given a order". Those are genuinely different events -- one
+    happens before any work exists, the other happens at hand-over and can
+    repeat several times for a single order. So a payment can name the delivery
+    it came from, but is never required to, and the balance is blind to which
+    it was: everything received counts the same.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="mgr", password="secret123")
+        self.client.login(username="mgr", password="secret123")
+        self.customer = Customer.objects.create(name="Priya", phone="9876543210")
+        self.order = Order.objects.create(customer=self.customer, total=Decimal("1000"))
+        self.delivery = Delivery.objects.create(
+            order=self.order, delivered_on=date(2026, 10, 12)
+        )
+
+    # --- the service ------------------------------------------------------
+
+    def test_an_advance_names_no_delivery(self):
+        """The common case, and the one that must keep working untouched."""
+        p = record_payment(
+            self.order, "500", PaymentMode.UPI, self.user,
+            kind=PaymentKind.ADVANCE,
+        )
+        self.assertEqual(p.kind, PaymentKind.ADVANCE)
+        self.assertIsNone(p.delivery)
+        self.assertEqual(order_balance(self.order), Decimal("500"))
+
+    def test_a_payment_can_be_tied_to_a_delivery(self):
+        p = record_payment(
+            self.order, "400", PaymentMode.CASH, self.user,
+            kind=PaymentKind.DELIVERY, delivery=self.delivery,
+        )
+        self.assertEqual(p.delivery, self.delivery)
+        # Balance is blind to the reason -- this is the whole point of one ledger.
+        self.assertEqual(order_balance(self.order), Decimal("600"))
+
+    def test_kind_delivery_without_a_delivery_is_rejected(self):
+        """Naming an event that does not exist would silently misfile the money."""
+        with self.assertRaisesMessage(ValueError, "Choose which delivery"):
+            record_payment(
+                self.order, "100", PaymentMode.CASH, self.user,
+                kind=PaymentKind.DELIVERY,
+            )
+
+    def test_a_delivery_from_another_order_is_rejected(self):
+        """The picker is scoped to one order, but the service is the last line
+        of defence and cannot assume the caller was honest."""
+        other = Order.objects.create(customer=self.customer, total=Decimal("300"))
+        other_delivery = Delivery.objects.create(order=other, delivered_on=date(2026, 10, 13))
+        with self.assertRaisesMessage(ValueError, "different order"):
+            record_payment(
+                self.order, "100", PaymentMode.CASH, self.user,
+                kind=PaymentKind.DELIVERY, delivery=other_delivery,
+            )
+
+    def test_only_a_delivery_payment_may_name_a_delivery(self):
+        """An advance against a delivery is a contradiction in terms, and
+        quietly dropping the link would leave the ledger saying nothing about
+        money that is visibly attached to an event."""
+        with self.assertRaisesMessage(ValueError, "Against delivery"):
+            record_payment(
+                self.order, "100", PaymentMode.CASH, self.user,
+                kind=PaymentKind.ADVANCE, delivery=self.delivery,
+            )
+
+    def test_an_unknown_kind_is_rejected(self):
+        with self.assertRaisesMessage(ValueError, "Invalid payment type"):
+            record_payment(self.order, "100", PaymentMode.CASH, self.user, kind="bribe")
+
+    def test_balance_sums_both_kinds_indifferently(self):
+        """Under- and over-payment both stay legal: the shop takes what the
+        customer hands over, and the ledger reports the difference."""
+        record_payment(self.order, "200", PaymentMode.CASH, self.user, kind=PaymentKind.ADVANCE)
+        record_payment(
+            self.order, "900", PaymentMode.CASH, self.user,
+            kind=PaymentKind.DELIVERY, delivery=self.delivery,
+        )
+        self.assertEqual(order_balance(self.order), Decimal("-100"))
+
+    # --- the form ---------------------------------------------------------
+
+    def test_form_requires_a_delivery_for_the_delivery_kind(self):
+        form = PaymentForm(
+            {"amount": "100", "kind": PaymentKind.DELIVERY, "delivery": "", "mode": "cash"},
+            order=self.order,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("delivery", form.errors)
+
+    def test_form_rejects_a_delivery_on_an_advance(self):
+        form = PaymentForm(
+            {
+                "amount": "100",
+                "kind": PaymentKind.ADVANCE,
+                "delivery": str(self.delivery.id),
+                "mode": "cash",
+            },
+            order=self.order,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("delivery", form.errors)
+
+    def test_form_only_offers_this_orders_deliveries(self):
+        """The single most likely operator error is paying against another
+        order's delivery, so the picker never offers one."""
+        other = Order.objects.create(customer=self.customer, total=Decimal("300"))
+        Delivery.objects.create(order=other, delivered_on=date(2026, 10, 13))
+        form = PaymentForm(order=self.order)
+        ids = [value for value, _label in form.fields["delivery"].choices]
+        self.assertIn(str(self.delivery.id), ids)
+        self.assertEqual(len(ids), 2)  # this delivery plus the blank option
+
+    def test_form_accepts_a_delivery_payment(self):
+        form = PaymentForm(
+            {
+                "amount": "100",
+                "kind": PaymentKind.DELIVERY,
+                "delivery": str(self.delivery.id),
+                "mode": "cash",
+            },
+            order=self.order,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
+    # --- the view ---------------------------------------------------------
+
+    def test_recording_a_delivery_payment_end_to_end(self):
+        self.client.post(
+            reverse("billing:order_payment_add", args=[self.order.id]),
+            {
+                "amount": "150",
+                "kind": PaymentKind.DELIVERY,
+                "delivery": str(self.delivery.id),
+                "mode": "cash",
+                "note": "",
+            },
+            headers={"hx-request": "true"},
+        )
+        p = self.order.payments.get()
+        self.assertEqual(p.kind, PaymentKind.DELIVERY)
+        self.assertEqual(p.delivery, self.delivery)
+
+    def test_an_advance_payment_still_works_with_no_delivery(self):
+        self.client.post(
+            reverse("billing:order_payment_add", args=[self.order.id]),
+            {"amount": "500", "kind": PaymentKind.ADVANCE, "delivery": "", "mode": "upi", "note": ""},
+            headers={"hx-request": "true"},
+        )
+        p = self.order.payments.get()
+        self.assertEqual(p.kind, PaymentKind.ADVANCE)
+        self.assertIsNone(p.delivery)
+
+    def test_a_post_without_a_kind_is_an_advance(self):
+        """A stale browser tab, an import, or a script predates the field.
+        They all described the same thing — money against the order — so they
+        must keep working rather than turning into a 400."""
+        self.client.post(
+            reverse("billing:order_payment_add", args=[self.order.id]),
+            {"amount": "500", "mode": "cash", "note": ""},
+            headers={"hx-request": "true"},
+        )
+        p = self.order.payments.get()
+        self.assertEqual(p.kind, PaymentKind.ADVANCE)
+        self.assertIsNone(p.delivery)
+
+    def test_a_delivery_from_another_order_is_refused_at_the_view(self):
+        """The form only offers this order's deliveries, so reaching this path
+        means the POST was hand-built. Say so rather than filing the money."""
+        other = Order.objects.create(customer=self.customer, total=Decimal("300"))
+        other_delivery = Delivery.objects.create(order=other, delivered_on=date(2026, 10, 13))
+        resp = self.client.post(
+            reverse("billing:order_payment_add", args=[self.order.id]),
+            {
+                "amount": "150",
+                "kind": PaymentKind.DELIVERY,
+                "delivery": str(other_delivery.id),
+                "mode": "cash",
+                "note": "",
+            },
+            headers={"hx-request": "true"},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(self.order.payments.count(), 0)
+
+    def test_picker_lists_this_orders_deliveries_with_a_date(self):
+        response = self.client.get(reverse("orders:detail", args=[self.order.id]))
+        # The operator picks by "the 12 Oct hand-over", not by an opaque id.
+        self.assertContains(response, "12 Oct 2026")
+
+    def test_history_says_what_each_payment_was_for(self):
+        record_payment(self.order, "500", PaymentMode.CASH, self.user, kind=PaymentKind.ADVANCE)
+        record_payment(
+            self.order, "300", PaymentMode.CASH, self.user,
+            kind=PaymentKind.DELIVERY, delivery=self.delivery,
+        )
+        response = self.client.get(reverse("orders:detail", args=[self.order.id]))
+        self.assertContains(response, "Advance")
+        self.assertContains(response, "Against delivery")
+        self.assertContains(response, "against delivery of 12 Oct 2026")
+
+    def test_an_unpriced_order_reports_what_was_collected(self):
+        """"Amount TBD" alone hides money the shop is already holding, which is
+        exactly the situation this whole requirement was raised for."""
+        order = Order.objects.create(customer=self.customer)  # total not agreed
+        record_payment(order, "500", PaymentMode.CASH, self.user, kind=PaymentKind.ADVANCE)
+        response = self.client.get(reverse("orders:detail", args=[order.id]))
+        self.assertContains(response, "500.00")
+        self.assertContains(response, "Amount TBD")

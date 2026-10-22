@@ -69,14 +69,30 @@ def order_payment_add(request, order_id):
 
     Why HTMX + partial: counter staff record advances rapid-fire without
     losing the order detail scroll position to a full reload.
+
+    Why the delivery is re-scoped to the order here rather than fetched by id:
+    the picker only ever offers this order's hand-overs, so a stray id can only
+    arrive in a hand-built POST. Looking it up inside order.deliveries turns
+    that into a plain "not yours" instead of a payment filed against another
+    customer's hand-over.
     """
     order = get_object_or_404(Order, id=order_id)
-    form = PaymentForm(request.POST)
+    form = PaymentForm(request.POST, order=order)
     if not form.is_valid():
         context = payment_section_context(order)
         context["payment_form"] = form
         context["error"] = "Please fix the highlighted fields."
         return render(request, "shop/billing/_payments.html", context, status=400)
+
+    delivery = None
+    delivery_id = form.cleaned_data.get("delivery")
+    if delivery_id:
+        delivery = order.deliveries.filter(id=delivery_id).first()
+        if delivery is None:
+            context = payment_section_context(order)
+            context["payment_form"] = form
+            context["error"] = "That delivery does not belong to this order."
+            return render(request, "shop/billing/_payments.html", context, status=400)
 
     try:
         record_payment(
@@ -85,6 +101,8 @@ def order_payment_add(request, order_id):
             form.cleaned_data["mode"],
             request.user,
             note=form.cleaned_data["note"],
+            kind=form.cleaned_data["kind"],
+            delivery=delivery,
         )
     except ValueError as e:
         context = payment_section_context(order)

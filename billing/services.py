@@ -15,13 +15,16 @@ from django.db.models import DecimalField, F, Sum
 from django.db.models.functions import Coalesce
 
 from .forms import PaymentForm
-from .models import Payment, PaymentMode
+from .models import Payment, PaymentKind, PaymentMode
 
 
 def total_paid(order):
     """Return the sum of all payments recorded against an order.
 
     Why: the single source of truth for "how much has the customer paid".
+    Why every kind counts regardless of its label: an advance and a
+    hand-over payment are both money the shop is holding, and the balance
+    owes nothing to the reason it arrived.
     Returns Decimal("0") when nothing was recorded yet.
     """
     result = order.payments.aggregate(total=Sum("amount"))["total"]
@@ -51,11 +54,16 @@ def order_balance(order):
     return order.total - total_paid(order)
 
 
-def record_payment(order, amount, mode, recorded_by, note=""):
+def record_payment(order, amount, mode, recorded_by, note="", kind=PaymentKind.ADVANCE, delivery=None):
     """Record a payment against an order.
 
     Why: the only sanctioned way to add money movement — validation here
     protects both the HTMX form and any future caller (import, API).
+
+    Why the kind/delivery pairing is enforced here as well as in the Form:
+    this function is the choke point, and a caller that skips the Form (an
+    import, a script, a future API) must not be able to file cash against a
+    hand-over that belongs to somebody else's order.
 
     Args:
         order: Order the payment belongs to.
@@ -63,12 +71,17 @@ def record_payment(order, amount, mode, recorded_by, note=""):
         mode: One of PaymentMode values (cash/upi/card/other).
         recorded_by: User taking the payment (accountability trail).
         note: Optional reference (e.g. UPI transaction id).
+        kind: One of PaymentKind values. Defaults to ADVANCE, which is what
+            every payment recorded before this field existed actually was.
+        delivery: Optional Delivery this payment was taken at. Only meaningful
+            when kind is DELIVERY, and only ever the given order's.
 
     Returns:
         The created Payment instance.
 
     Raises:
-        ValueError: If amount is not a positive number or mode is invalid.
+        ValueError: If amount is not a positive number, mode or kind is
+            invalid, or the delivery does not agree with the kind and order.
     """
     try:
         amount = Decimal(str(amount))
@@ -78,10 +91,21 @@ def record_payment(order, amount, mode, recorded_by, note=""):
         raise ValueError("Amount must be positive.")
     if mode not in PaymentMode.values:
         raise ValueError("Invalid payment mode.")
+    if kind not in PaymentKind.values:
+        raise ValueError("Invalid payment type.")
+    if delivery is not None:
+        if delivery.order_id != order.id:
+            raise ValueError("That delivery belongs to a different order.")
+        if kind != PaymentKind.DELIVERY:
+            raise ValueError("Only an 'Against delivery' payment can name a delivery.")
+    elif kind == PaymentKind.DELIVERY:
+        raise ValueError("Choose which delivery this payment is against.")
     return Payment.objects.create(
         order=order,
         amount=amount,
         mode=mode,
+        kind=kind,
+        delivery=delivery,
         recorded_by=recorded_by,
         note=(note or "").strip(),
     )
@@ -121,11 +145,16 @@ def payment_section_context(order):
     total yet. The template says so rather than printing ₹0.00 for a price
     nobody has agreed.
     """
-    payments = order.payments.select_related("recorded_by").order_by("-created_at")
+    payments = (
+        order.payments.select_related("recorded_by", "delivery").order_by("-created_at")
+    )
     return {
         "order": order,
         "payments": payments,
-        "payment_form": PaymentForm(),
+        # Why order=: the delivery picker offers this order's hand-overs and
+        # nothing else. Without it the form renders a choice list it would
+        # then reject.
+        "payment_form": PaymentForm(order=order),
         "payment_modes": PaymentMode.choices,
         "paid": total_paid(order),
         "balance": order_balance(order),
