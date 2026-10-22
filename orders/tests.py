@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from customers.models import Customer, CustomerMeasurement
 from orders.models import (
+    MaterialSource,
     Order,
     OrderItem,
     OrderMeasurement,
@@ -732,3 +733,248 @@ class MeasurementSnapshotTests(TestCase):
         response = self.client.get(reverse("orders:detail", args=[order.id]))
         self.assertNotContains(response, "Measured when this order was taken")
         self.assertNotContains(response, "Bust")
+
+
+class OrderItemTests(TestCase):
+    """The line-item editor: what goes in, what comes out, and the flag it drives.
+
+    Rows reach the view as four repeated field names plus a row id, so the
+    payloads below use lists - one entry per row, in order.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="mgr", password="secret123")
+        self.client.login(username="mgr", password="secret123")
+        self.customer = Customer.objects.create(name="Priya", phone="9876543210")
+
+    def post_items(self, order=None, **overrides):
+        """POST an order form carrying item rows.
+
+        Args:
+            order: when given, edit that order instead of creating one.
+            **overrides: payload fields to replace wholesale.
+
+        Returns:
+            The test client response.
+        """
+        payload = {
+            "customer": str(self.customer.id),
+            "total": "1000",
+            "item_id": [""],
+            "item_description": ["Blouse with lining"],
+            "item_quantity": ["2"],
+            "item_price": ["500"],
+            "item_material": ["shop"],
+        }
+        payload.update(overrides)
+        url = reverse("orders:edit", args=[order.id]) if order else reverse("orders:create")
+        return self.client.post(url, payload)
+
+    def test_items_are_created_with_the_order(self):
+        self.post_items()
+        order = Order.objects.get(customer=self.customer)
+        item = order.items.get()
+        self.assertEqual(item.description, "Blouse with lining")
+        self.assertEqual(item.quantity, 2)
+        self.assertEqual(item.price, Decimal("500"))
+        self.assertEqual(item.material_source, MaterialSource.SHOP)
+
+    def test_blank_rows_are_ignored(self):
+        """The editor ships with empty rows; they must never become items."""
+        self.post_items(
+            item_id=["", ""],
+            item_description=["Blouse with lining", "   "],
+            item_quantity=["2", "3"],
+            item_price=["500", "100"],
+            item_material=["shop", "customer"],
+        )
+        order = Order.objects.get(customer=self.customer)
+        self.assertEqual(order.items.count(), 1)
+
+    def test_order_without_items_is_valid(self):
+        """Itemising is optional - plenty of jobs are just a description."""
+        self.client.post(
+            reverse("orders:create"), {"customer": str(self.customer.id), "total": "500"}
+        )
+        order = Order.objects.get(customer=self.customer)
+        self.assertFalse(order.items.exists())
+
+    def test_quantity_below_one_is_rejected(self):
+        """'0 blouses' is a typo, and would cap what can ever be delivered."""
+        self.post_items(item_quantity=["0"])
+        self.assertFalse(Order.objects.exists())
+
+    def test_non_numeric_quantity_is_rejected(self):
+        self.post_items(item_quantity=["two"])
+        self.assertFalse(Order.objects.exists())
+
+    def test_blank_unit_price_becomes_zero_not_null(self):
+        """The price column is not nullable; an empty box means free."""
+        self.post_items(item_price=[""])
+        item = Order.objects.get(customer=self.customer).items.get()
+        self.assertEqual(item.price, Decimal("0"))
+
+    def test_negative_unit_price_is_rejected(self):
+        self.post_items(item_price=["-100"])
+        self.assertFalse(Order.objects.exists())
+
+    def test_mismatched_row_lists_are_refused(self):
+        """zip() would truncate and quietly save a plausible-looking subset."""
+        self.post_items(
+            item_id=["", ""],
+            item_description=["Blouse", "Saree"],
+            item_quantity=["2"],  # one short of the other lists
+            item_price=["500", "200"],
+            item_material=["shop", "customer"],
+        )
+        self.assertFalse(Order.objects.exists())
+
+    def test_multiple_rows_keep_their_order(self):
+        self.post_items(
+            item_id=["", ""],
+            item_description=["Blouse", "Saree alteration"],
+            item_quantity=["2", "1"],
+            item_price=["500", "200"],
+            item_material=["shop", "customer"],
+        )
+        order = Order.objects.get(customer=self.customer)
+        self.assertEqual(
+            list(order.items.values_list("description", flat=True)),
+            ["Blouse", "Saree alteration"],
+        )
+
+    def test_line_total_is_quantity_times_unit_price(self):
+        """`price` is per unit, not the line total - this pins that reading."""
+        order = Order.objects.create(customer=self.customer)
+        item = OrderItem.objects.create(
+            order=order, description="Blouse", quantity=10, price=Decimal("500")
+        )
+        self.assertEqual(item.line_total, Decimal("5000"))
+
+    def test_customer_cloth_line_is_free_and_not_an_error(self):
+        order = Order.objects.create(customer=self.customer)
+        item = OrderItem.objects.create(
+            order=order,
+            description="Blouse",
+            quantity=1,
+            price=Decimal("0"),
+            material_source=MaterialSource.CUSTOMER,
+        )
+        self.assertEqual(item.line_total, Decimal("0"))
+        self.assertEqual(item.material_source, MaterialSource.CUSTOMER)
+
+    def test_order_material_source_all_shop(self):
+        order = Order.objects.create(customer=self.customer)
+        OrderItem.objects.create(order=order, description="A", material_source="shop")
+        OrderItem.objects.create(order=order, description="B", material_source="shop")
+        self.assertEqual(order.material_source, MaterialSource.SHOP)
+
+    def test_order_material_source_all_customer(self):
+        order = Order.objects.create(customer=self.customer)
+        OrderItem.objects.create(order=order, description="A", material_source="customer")
+        self.assertEqual(order.material_source, MaterialSource.CUSTOMER)
+
+    def test_order_material_source_mixed(self):
+        """One order holding both kinds is exactly what the client described."""
+        order = Order.objects.create(customer=self.customer)
+        OrderItem.objects.create(order=order, description="A", material_source="shop")
+        OrderItem.objects.create(order=order, description="B", material_source="customer")
+        self.assertEqual(order.material_source, MaterialSource.MIXED)
+
+    def test_order_with_no_items_reports_shop(self):
+        """Every order was shop cloth before itemisation existed, so that is
+        the only sensible reading of an empty one."""
+        order = Order.objects.create(customer=self.customer)
+        self.assertEqual(order.material_source, MaterialSource.SHOP)
+
+    def test_edit_updates_an_item_in_place(self):
+        """Identity survives an edit, so a later DeliveryLine cannot be orphaned."""
+        order = Order.objects.create(customer=self.customer)
+        item = OrderItem.objects.create(order=order, description="Blouse", quantity=1)
+        self.post_items(
+            order=order,
+            item_id=[str(item.id)],
+            item_description=["Blouse with lining"],
+            item_quantity=["3"],
+            item_price=["400"],
+            item_material=["customer"],
+        )
+        item.refresh_from_db()
+        self.assertEqual(item.description, "Blouse with lining")
+        self.assertEqual(item.quantity, 3)
+        self.assertEqual(item.price, Decimal("400"))
+        self.assertEqual(item.material_source, MaterialSource.CUSTOMER)
+        self.assertEqual(order.items.count(), 1)
+
+    def test_edit_removes_a_row_the_staff_deleted(self):
+        order = Order.objects.create(customer=self.customer)
+        keep = OrderItem.objects.create(order=order, description="Blouse")
+        OrderItem.objects.create(order=order, description="Saree alteration")
+        self.post_items(
+            order=order,
+            item_id=[str(keep.id)],
+            item_description=["Blouse"],
+            item_quantity=["1"],
+            item_price=[""],
+            item_material=["shop"],
+        )
+        self.assertEqual(
+            list(order.items.values_list("description", flat=True)), ["Blouse"]
+        )
+
+    def test_a_forged_row_id_cannot_reach_another_order(self):
+        mine = Order.objects.create(customer=self.customer)
+        other = Order.objects.create(customer=self.customer)
+        foreign = OrderItem.objects.create(order=other, description="Not mine")
+
+        self.post_items(
+            order=mine,
+            item_id=[str(foreign.id)],
+            item_description=["Hijacked"],
+            item_quantity=["1"],
+            item_price=["10"],
+            item_material=["shop"],
+        )
+
+        foreign.refresh_from_db()
+        self.assertEqual(foreign.description, "Not mine")
+        self.assertFalse(mine.items.exists())
+
+    def test_order_detail_shows_totals_and_cloth_flags(self):
+        order = Order.objects.create(customer=self.customer, total=Decimal("1234"))
+        OrderItem.objects.create(
+            order=order, description="Blouse", quantity=2, price=Decimal("500")
+        )
+        OrderItem.objects.create(
+            order=order,
+            description="Saree alteration",
+            quantity=1,
+            price=Decimal("0"),
+            material_source=MaterialSource.CUSTOMER,
+        )
+        response = self.client.get(reverse("orders:detail", args=[order.id]))
+        self.assertContains(response, "Blouse")
+        # 2 x 500, chosen so it cannot be mistaken for the order total.
+        self.assertContains(response, "1000.00")
+        self.assertContains(response, "Customer's cloth")
+        self.assertContains(response, "Shop cloth")
+        self.assertContains(response, "Cloth: Mixed")
+
+    def test_order_without_items_shows_no_items_table(self):
+        order = Order.objects.create(customer=self.customer)
+        response = self.client.get(reverse("orders:detail", args=[order.id]))
+        self.assertNotContains(response, "Unit ₹")
+
+    def test_create_form_ships_blank_item_rows(self):
+        response = self.client.get(reverse("orders:create"))
+        self.assertContains(response, "item-rows")
+        self.assertContains(response, "Add another item")
+
+    def test_edit_form_lists_existing_items(self):
+        order = Order.objects.create(customer=self.customer)
+        OrderItem.objects.create(order=order, description="Blouse", quantity=2)
+        response = self.client.get(reverse("orders:edit", args=[order.id]))
+        # The value attribute, not the bare word: the blank row's placeholder
+        # says "Blouse with lining", so the word alone proves nothing.
+        self.assertContains(response, 'value="Blouse"')
+        self.assertContains(response, 'value="2"')

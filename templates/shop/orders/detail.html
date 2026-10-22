@@ -58,12 +58,54 @@
     {% endif %}
 </div>
 
+{# Itemised lines. Hidden entirely when the order has none, because the #}
+{# editor is optional and an unlisted job should not grow an empty table. #}
+{% if order.items.all %}
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+    <h2 class="text-lg font-semibold mb-3">Items</h2>
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-left text-xs text-slate-500 uppercase tracking-wide">
+                <th class="pb-2 pr-2 font-medium">Item</th>
+                <th class="pb-2 pr-2 w-14 font-medium">Qty</th>
+                <th class="pb-2 pr-2 text-right w-20 font-medium">Unit ₹</th>
+                <th class="pb-2 pr-2 text-right w-24 font-medium">Line ₹</th>
+                <th class="pb-2 w-36 font-medium">Cloth</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in order.items.all %}
+            <tr class="border-t border-slate-100">
+                <td class="py-2 pr-2">{{ item.description }}</td>
+                <td class="py-2 pr-2">{{ item.quantity }}</td>
+                <td class="py-2 pr-2 text-right">{{ item.price|floatformat:2 }}</td>
+                <td class="py-2 pr-2 text-right font-medium">{{ item.line_total|floatformat:2 }}</td>
+                <td class="py-2">
+                    {% if item.material_source == 'customer' %}
+                    <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
+                        Customer's cloth
+                    </span>
+                    {% else %}
+                    <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+                        Shop cloth
+                    </span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {# Worth spelling out: an order mixing both is exactly what the client #}
+    {# described, and per-line badges alone don't make it obvious. #}
+    <p class="text-xs text-slate-500 mt-3">Cloth: {{ order.material_source|capfirst }}</p>
+</div>
+{% endif %}
+
 {# Only shown when something was measured, so saree alterations and other #}
 {# unmeasured orders don't grow an empty card. The note earns its place: #}
 {# these numbers are frozen and may differ from the customer's current ones, #}
 {# which otherwise reads as a bug. #}
-{% if order.measurement %}
-<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 print:hidden">
+{% if order.measurement %}<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 print:hidden">
     <p class="text-sm text-slate-500 mb-3">
         Measured when this order was taken — kept as a record, so it may differ
         from the customer's current measurements.
