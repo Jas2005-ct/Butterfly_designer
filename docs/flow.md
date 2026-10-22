@@ -356,7 +356,7 @@ not a release decision.
 |---|---|---|---|
 | `gh` OAuth token | GitHub token | `repo`, `workflow`, `admin:public_key`, `gist`, `read:org` | `git push`, PRs, `gh` CLI |
 | AWS root (CLI default profile) | IAM user | full account | ⚠️ currently used for every deploy |
-| `butterfly-designer` | IAM user | `ecs-deploy`, `console-read`, `s3-butterfly-only`; console login | console access; **no access key yet** |
+| `butterfly-designer` | IAM user | inline `ecs-deploy` + inline `s3-butterfly-only` + managed `ButterflyConsoleRead`; console login | console access; **no access key yet** |
 | `github-actions-deploy` | IAM role | inline `ecs-deploy` | CI → assumed via OIDC, no stored keys |
 | `ecsTaskExecutionRole` | IAM role | `AmazonECSTaskExecutionRolePolicy` | ECS pulling the image + writing logs |
 | `ecsInfrastructureRoleForExpressServices` | IAM role | `AmazonECSInfrastructureRoleforExpressGatewayServices` + inline `express-mode-extra` | Express Mode creating ALB / ACM / SG / autoscaling |
@@ -365,12 +365,18 @@ not a release decision.
 long-lived secret exists. Get off root by giving `butterfly-designer` an
 access key and using `--profile butterfly-designer`.
 
-The two inline policies are versioned in `infra/`:
+The policies are versioned in `infra/`:
 
 | File | Attached to | Why |
 |---|---|---|
-| `infra/ecs-deploy-policy.json` | `github-actions-deploy` role | ECR push + Express service API + `iam:PassRole` + logs |
+| `infra/ecs-deploy-policy.json` | `github-actions-deploy` role **and** the `butterfly-designer` user | ECR push + Express service API + `iam:PassRole` + logs |
 | `infra/express-mode-extra-policy.json` | `ecsInfrastructureRoleForExpressServices` role | the permissions the AWS-managed infrastructure policy does **not** grant |
+| `infra/console-read-policy.json` | `butterfly-designer` user, as the **managed** policy `ButterflyConsoleRead` | read-only ECS / logs / autoscaling / infrastructure calls, so the AWS console renders |
+| `infra/ecr-lifecycle-policy.json` | the ECR repository | keep the 5 most recent tagged releases (rollback targets) and expire untagged images after 30 days |
+
+`console-read` is a **managed** policy rather than an inline one: its document
+is 2078 bytes and IAM caps inline user policies at 2048. Managed policies
+allow 6144.
 
 `infra/setup-aws-deploy-role.ps1` creates the whole set idempotently.
 
