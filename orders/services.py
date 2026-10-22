@@ -15,32 +15,29 @@ from .models import Order, OrderStage, OrderStageHistory
 
 
 VALID_NEXT_STAGES = {
-    OrderStage.MEASUREMENT: {OrderStage.CUTTING, OrderStage.CANCELLED},
-    OrderStage.CUTTING: {OrderStage.STITCHING, OrderStage.MEASUREMENT, OrderStage.CANCELLED},
-    OrderStage.STITCHING: {OrderStage.FITTING, OrderStage.CUTTING, OrderStage.CANCELLED},
-    OrderStage.FITTING: {OrderStage.READY, OrderStage.STITCHING, OrderStage.CANCELLED},
-    OrderStage.READY: {OrderStage.DELIVERED, OrderStage.FITTING, OrderStage.CANCELLED},
-    OrderStage.DELIVERED: {OrderStage.FITTING},  # rare: return for alteration
+    OrderStage.MEASUREMENT: {OrderStage.STITCHING, OrderStage.CANCELLED},
+    OrderStage.STITCHING: {OrderStage.READY, OrderStage.MEASUREMENT, OrderStage.CANCELLED},
+    OrderStage.READY: {OrderStage.DELIVERED, OrderStage.STITCHING, OrderStage.CANCELLED},
+    OrderStage.DELIVERED: {OrderStage.STITCHING},  # rare: return for alteration
     OrderStage.CANCELLED: {OrderStage.MEASUREMENT},  # reopen with note
 }
 
 # Canonical lifecycle order (used for display ordering and backward detection).
 STAGE_ORDER = [
     OrderStage.MEASUREMENT,
-    OrderStage.CUTTING,
     OrderStage.STITCHING,
-    OrderStage.FITTING,
     OrderStage.READY,
     OrderStage.DELIVERED,
     OrderStage.CANCELLED,
 ]
 
 # Emoji per stage for steppers and timelines (tablet-friendly visuals).
+# Stage History rows can still hold "cutting"/"fitting" from before the four
+# stage model (see orders/0002) - those are rendered by the explicit branches
+# in _stage_timeline.html, which stay put as part of the audit trail.
 STAGE_EMOJI = {
     OrderStage.MEASUREMENT: "📏",
-    OrderStage.CUTTING: "✂️",
     OrderStage.STITCHING: "🧵",
-    OrderStage.FITTING: "👗",
     OrderStage.READY: "✅",
     OrderStage.DELIVERED: "📦",
     OrderStage.CANCELLED: "❌",

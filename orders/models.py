@@ -5,12 +5,18 @@ from django.utils import timezone
 
 
 class OrderStage(models.TextChoices):
+    # Four stages, as the shop runs them: measurement -> stitching -> ready ->
+    # delivery. "Cutting" and "fitting" were removed as separate stages -
+    # cutting is part of the stitching work, and a fitting trial is not a
+    # stage an order sits in. A data migration folds existing cutting/fitting
+    # orders into stitching (orders/0002).
     MEASUREMENT = "measurement", "Measurement"
-    CUTTING = "cutting", "Cutting"
     STITCHING = "stitching", "Stitching"
-    FITTING = "fitting", "Fitting"
     READY = "ready", "Ready"
-    DELIVERED = "delivered", "Delivered"
+    # Slug stays "delivered": it is wired through ?tab=delivered, the
+    # counts.delivered key and a page of tests. Only the label changed so the
+    # board column and stepper read "Delivery" as the shop calls it.
+    DELIVERED = "delivered", "Delivery"
     CANCELLED = "cancelled", "Cancelled"
 
 

@@ -104,7 +104,7 @@ class ProfitTests(TestCase):
             customer=self.customer,
             total=Decimal("9000.00"),
             material_cost=Decimal("100.00"),
-            stage=OrderStage.FITTING,
+            stage=OrderStage.READY,
         )
         advance_stage(cancelled, OrderStage.CANCELLED, self.user, note="cancelled")
         result = services.profit_totals()
@@ -119,13 +119,13 @@ class PipelineTests(TestCase):
         self.customer = Customer.objects.create(name="Priya", phone="9876543210")
 
     def test_orders_by_stage_covers_lifecycle(self):
-        Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
         rows = {row["stage"]: row["count"] for row in services.orders_by_stage()}
-        self.assertEqual(rows[OrderStage.CUTTING], 1)
+        self.assertEqual(rows[OrderStage.STITCHING], 1)
         self.assertEqual(rows[OrderStage.MEASUREMENT], 0)
 
     def test_pipeline_counts(self):
-        Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
         Order.objects.create(customer=self.customer, stage=OrderStage.DELIVERED)
         counts = services.pipeline_counts()
         self.assertEqual(counts, {"delivered": 1, "cancelled": 0, "open": 1, "total": 2})
@@ -148,7 +148,7 @@ class StuckOrdersTests(TestCase):
         self.customer = Customer.objects.create(name="Priya", phone="9876543210")
 
     def test_fresh_order_not_stuck(self):
-        Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
         self.assertEqual(services.stuck_orders(), [])
 
     def test_delivered_never_stuck(self):
@@ -156,7 +156,7 @@ class StuckOrdersTests(TestCase):
         self.assertEqual(services.stuck_orders(), [])
 
     def test_old_order_is_stuck(self):
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
         # Backdate creation beyond the stuck threshold.
         Order.objects.filter(id=order.id).update(
             created_at=timezone.now() - timezone.timedelta(days=5)
@@ -169,14 +169,14 @@ class StuckOrdersTests(TestCase):
         # Rule is strictly older-than-3-days. Exact equality is untestable
         # (the clock moves between backdating and the query), so assert a
         # minute inside the window is not stuck.
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
         Order.objects.filter(id=order.id).update(
             created_at=timezone.now() - timezone.timedelta(days=3) + timezone.timedelta(minutes=1)
         )
         self.assertEqual(services.stuck_orders(), [])
 
     def test_just_over_threshold_is_stuck(self):
-        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.STITCHING)
         Order.objects.filter(id=order.id).update(
             created_at=timezone.now() - timezone.timedelta(days=3, minutes=1)
         )
