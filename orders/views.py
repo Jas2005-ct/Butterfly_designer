@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Prefetch, Q
-from django.http import HttpResponse, HttpResponseBadRequest
+from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
@@ -120,23 +120,37 @@ def _detail_status_context(order, user):
     return context
 
 
-@login_required
-def board(request):
-    """Kanban board: active orders by stage, with Delivered/Cancelled tabs.
+def _board_context(request, params):
+    """Build the full Order Board context from a QueryDict.
 
-    Why tabs: on an 8" tablet 7 columns bury the active work. The default
-    Active tab shows the 5 working stages; finished orders are one tap away.
-    Cards carry urgency badges (overdue / stuck) so staff can triage
-    without opening each order.
+    Why a shared builder: board() renders the page and order_card_advance()
+    re-renders the same markup as an HTMX fragment after a stage change.
+    One builder means the swapped-in board can never disagree with a fresh
+    page load (counts, sorting, column caps, urgency badges, due badges).
+
+    Args:
+        request: current request; the board has no user-derived state today,
+            it is taken for signature parity with the views.
+        params: QueryDict holding the view state - request.GET on a page load,
+            request.POST for the card-advance fragment (tab/view/q/show arrive
+            as hidden inputs on the advance form).
+
+    Returns:
+        dict ready to render shop/orders/board.html or its
+        shop/orders/_board_content.html fragment.
     """
-    query = request.GET.get("q", "").strip()
-    tab = request.GET.get("tab", "active")
+    # Why tabs: on an 8" tablet 7 columns bury the active work. The default
+    # Active tab shows the working stages; finished orders are one tap away.
+    # Cards carry urgency badges (overdue / stuck) so staff can triage
+    # without opening each order.
+    query = (params.get("q") or "").strip()
+    tab = params.get("tab", "active")
     if tab not in ("active", "delivered", "cancelled"):
         tab = "active"
-    view_mode = request.GET.get("view", "board")
+    view_mode = params.get("view", "board")
     if view_mode not in ("board", "list"):
         view_mode = "board"
-    show_all = request.GET.get("show") == "all"
+    show_all = params.get("show") == "all"
 
     orders_qs = (
         Order.objects.select_related("customer")
@@ -217,25 +231,37 @@ def board(request):
     flat_orders = [o for stage in visible_stages for o in columns[stage]]
     show_all_total = total_orders if not show_all else 0
 
+    return {
+        "columns": columns,
+        "column_totals": column_totals,
+        "remaining_counts": remaining_counts,
+        "flat_orders": flat_orders,
+        "show_all_link": not show_all and total_orders > BOARD_COLUMN_CAP,
+        "show_all_total": show_all_total,
+        "stage_order": visible_stages,
+        "query": query,
+        "tab": tab,
+        "view_mode": view_mode,
+        "show_all": show_all,
+        "counts": counts,
+        "service_choices": ServiceType.choices,
+        "total_orders": total_orders,
+    }
+
+
+@login_required
+def board(request):
+    """Kanban board of active orders, with Delivered/Cancelled tabs.
+
+    Args:
+        request: GET request; the view state (q/tab/view/show) rides on the
+            query string.
+
+    Returns:
+        HttpResponse rendering shop/orders/board.html.
+    """
     return render(
-        request,
-        "shop/orders/board.html",
-        {
-            "columns": columns,
-            "column_totals": column_totals,
-            "remaining_counts": remaining_counts,
-            "flat_orders": flat_orders,
-            "show_all_link": not show_all and total_orders > BOARD_COLUMN_CAP,
-            "show_all_total": show_all_total,
-            "stage_order": visible_stages,
-            "query": query,
-            "tab": tab,
-            "view_mode": view_mode,
-            "show_all": show_all,
-            "counts": counts,
-            "service_choices": ServiceType.choices,
-            "total_orders": total_orders,
-        },
+        request, "shop/orders/board.html", _board_context(request, request.GET)
     )
 
 
@@ -247,8 +273,30 @@ def order_card_advance(request, order_id):
     Why no stage parameter: the server always moves to the single valid
     forward-next stage, so a tampered request cannot skip stages, go
     backward, or cancel. Backward/cancel stay on the detail page where a
-    reason is collected. Empty body on success: HTMX removes the card/row
-    via outerHTML swap; counts + toast update client-side from HX-Trigger.
+    reason is collected.
+
+    Why a re-rendered board instead of an empty body: the previous contract
+    was `hx-swap="outerHTML"` over `HttpResponse("")`, so HTMX *deleted* the
+    card and left every column count, badge and sorting rule stale until a
+    manual page reload. Re-rendering `_board_content.html` from the same
+    `_board_context()` the page load uses makes the change visible in the
+    same tap - counts, ordering, caps and badges all come from one source.
+    The tab counts and header summary live inside that fragment too.
+
+    Args:
+        request: POST request carrying the view state (tab/view/q/show) as
+            hidden inputs so the re-render keeps the user's current tab,
+            mode and search filter.
+        order_id: primary key of the order being advanced.
+
+    Returns:
+        HttpResponse with the refreshed board fragment plus an HX-Trigger
+        header for the toast.
+
+    Raises:
+        Http404: no Order with that id.
+        HttpResponseBadRequest: no forward move is available, or
+            advance_stage rejected the transition.
     """
     order = get_object_or_404(Order, id=order_id)
     from_stage = order.stage
@@ -267,7 +315,9 @@ def order_card_advance(request, order_id):
         advance_stage(order, forward[0], request.user)
     except ValueError as e:
         return HttpResponseBadRequest(str(e))
-    response = HttpResponse("")
+    response = render(
+        request, "shop/orders/_board_content.html", _board_context(request, request.POST)
+    )
     response["HX-Trigger"] = json.dumps({
         "orderMoved": {
             "number": order.order_number,

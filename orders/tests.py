@@ -236,19 +236,104 @@ class BoardVolumeTests(TestCase):
     def card_url(self, order):
         return reverse("orders:card_advance", args=[order.id])
 
+    def col_count(self, body, stage):
+        """Read a column's badge number out of a rendered board fragment.
+
+        Why a regex: column_totals is a dict keyed by stage, so only the
+        rendered badge tells you what the staff member actually sees.
+
+        Args:
+            body: decoded HTML of a board page or card_advance response.
+            stage: the OrderStage slug whose count to read.
+
+        Returns:
+            int count, or None when the column is not in the fragment.
+        """
+        import re
+
+        m = re.search(r'id="col-count-%s"[^>]*>\s*(\d+)\s*</span>' % stage, body)
+        return int(m.group(1)) if m else None
+
     def test_card_advance_moves_forward(self):
         import json
 
         order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
-        response = self.client.post(self.card_url(order), HTTP_HX_REQUEST="true")
+        response = self.client.post(self.card_url(order), {}, HTTP_HX_REQUEST="true")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b"")
         order.refresh_from_db()
         self.assertEqual(order.stage, OrderStage.STITCHING)
         self.assertTrue(order.stage_history.filter(to_stage=OrderStage.STITCHING).exists())
         trigger = json.loads(response["HX-Trigger"])
         self.assertEqual(trigger["orderMoved"]["number"], order.order_number)
         self.assertEqual(trigger["orderMoved"]["to_stage"], OrderStage.STITCHING)
+
+    def test_card_advance_returns_refreshed_board_not_empty_body(self):
+        """The endpoint used to return b"", so hx-swap="outerHTML" deleted the
+        card and left every column count, badge and sort order stale until the
+        user manually reloaded the page. It must now return the re-rendered
+        board with correct counts in the same round trip.
+        """
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        response = self.client.post(self.card_url(order), {}, HTTP_HX_REQUEST="true")
+        body = response.content.decode()
+        self.assertNotEqual(body.strip(), "", "empty body forces a manual reload")
+        self.assertIn("Order Board", body)
+        # The card moved out of cutting and now sits in stitching.
+        self.assertIn(f'id="order-card-{order.id}"', body)
+        self.assertEqual(self.col_count(body, "cutting"), 0)
+        self.assertEqual(self.col_count(body, "stitching"), 1)
+
+    def test_card_advance_preserves_view_mode(self):
+        """list/board, tab and search ride along as hidden inputs, so the
+        re-render never yanks staff out of the view they were using.
+        """
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        response = self.client.post(
+            self.card_url(order), {"view": "list", "tab": "active"}, HTTP_HX_REQUEST="true"
+        )
+        body = response.content.decode()
+        self.assertIn(f'id="order-row-{order.id}"', body, "should re-render list rows")
+        self.assertNotIn(f'id="order-card-{order.id}"', body, "should not switch to board")
+        self.assertIn('name="tab" value="active"', body)
+
+    def test_card_advance_preserves_search_filter(self):
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        response = self.client.post(
+            self.card_url(order), {"tab": "active", "q": "9876543210"}, HTTP_HX_REQUEST="true"
+        )
+        body = response.content.decode()
+        self.assertIn('name="q" value="9876543210"', body)
+        self.assertIn('name="tab" value="active"', body)
+
+    def test_card_advance_refreshes_tab_totals(self):
+        """Crossing into a terminal state changes counts.active and
+        counts.delivered, which live in the same fragment as the columns.
+        """
+        order = Order.objects.create(customer=self.customer, stage=OrderStage.READY)
+        response = self.client.post(self.card_url(order), {}, HTTP_HX_REQUEST="true")
+        body = response.content.decode()
+        order.refresh_from_db()
+        self.assertEqual(order.stage, OrderStage.DELIVERED)
+        self.assertIn("Active (0)", body)
+        self.assertIn("Delivered (1)", body)
+
+    def test_advance_form_targets_board_and_carries_view_state(self):
+        """#board-content must be the swap target (targeting the card with an
+        empty body is what used to delete it), and the page's own form must
+        carry the hidden view state. The POST-based tests above send those
+        values directly, so they would not notice them missing from the HTML.
+        """
+        Order.objects.create(customer=self.customer, stage=OrderStage.CUTTING)
+        html = self.client.get(
+            reverse("orders:board") + "?tab=active&view=list&q=987"
+        ).content.decode()
+        self.assertIn('id="board-content"', html)
+        at = html.index('hx-target="#board-content"')
+        form = html[at:at + 800]
+        self.assertIn('hx-swap="innerHTML"', form)
+        self.assertIn('name="tab" value="active"', form)
+        self.assertIn('name="view" value="list"', form)
+        self.assertIn('name="q" value="987"', form)
 
     def test_card_advance_chains(self):
         order = Order.objects.create(customer=self.customer, stage=OrderStage.MEASUREMENT)
