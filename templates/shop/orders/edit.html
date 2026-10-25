@@ -20,10 +20,14 @@
     <!-- Service Type -->
     <div>
         <label class="block text-sm font-medium text-slate-700 mb-2">Service Type</label>
+        {% if field_errors.service_type %}
+        <div class="mb-2 text-sm text-red-600">{{ field_errors.service_type }}</div>
+        {% endif %}
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {% for value, label in service_choices %}
             <label class="border border-slate-300 rounded-xl p-3 text-center cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
-                <input type="radio" name="service_type" value="{{ value }}" class="sr-only" {% if value == order.service_type %}checked{% endif %}>
+                <input type="radio" name="service_type" value="{{ value }}" class="sr-only"
+                       {% if value == form_values.service_type %}checked{% endif %}>
                 <span class="font-medium text-sm">{{ label }}</span>
             </label>
             {% endfor %}
@@ -34,8 +38,14 @@
     <div>
         <label for="description" class="block text-sm font-medium text-slate-700 mb-1">Description</label>
         <textarea name="description" id="description" rows="3"
-                  class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">{{ order.description }}</textarea>
+                  class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">{{ form_values.description }}</textarea>
     </div>
+
+    {% if field_errors.item_rows %}
+    <div class="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+        {{ field_errors.item_rows }}
+    </div>
+    {% endif %}
 
     {% include "shop/orders/_item_rows.html" %}
 
@@ -43,33 +53,51 @@
     <div class="grid grid-cols-2 gap-4">
         <div>
             <label for="total" class="block text-sm font-medium text-slate-700 mb-1">Total (₹)</label>
-            <input type="number" name="total" id="total" step="0.01" min="0" value="{{ order.total|default:'' }}"
+            <input type="number" name="total" id="total" step="0.01" min="0"
+                   value="{{ form_values.total }}"
                    placeholder="Not agreed yet"
                    class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
             <p class="text-xs text-slate-500 mt-1">
                 Optional — clearing it marks the price as not agreed yet.
             </p>
+            {% if field_errors.total %}
+            <p class="text-xs text-red-600 mt-1">{{ field_errors.total }}</p>
+            {% endif %}
         </div>
         <div>
             <label for="material_cost" class="block text-sm font-medium text-slate-700 mb-1">Material Cost (₹)</label>
-            <input type="number" name="material_cost" id="material_cost" step="0.01" min="0" value="{{ order.material_cost|default:'' }}"
+            <input type="number" name="material_cost" id="material_cost" step="0.01" min="0"
+                   value="{{ form_values.material_cost }}"
                    class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+            {% if field_errors.material_cost %}
+            <p class="text-xs text-red-600 mt-1">{{ field_errors.material_cost }}</p>
+            {% endif %}
         </div>
     </div>
 
     <!-- Promised Date -->
     <div>
         <label for="promised_date" class="block text-sm font-medium text-slate-700 mb-1">Promised Delivery Date</label>
-        <input type="date" name="promised_date" id="promised_date" value="{{ order.promised_date|date:'Y-m-d' }}"
+        <input type="date" name="promised_date" id="promised_date"
+               value="{{ form_values.promised_date }}"
                class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+        {% if field_errors.promised_date %}
+        <p class="text-xs text-red-600 mt-1">{{ field_errors.promised_date }}</p>
+        {% endif %}
     </div>
 
     <!-- Notes -->
     <div>
         <label for="notes" class="block text-sm font-medium text-slate-700 mb-1">Internal Notes</label>
         <textarea name="notes" id="notes" rows="2"
-                  class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">{{ order.notes }}</textarea>
+                  class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">{{ form_values.notes }}</textarea>
     </div>
+
+    {% if field_errors.form %}
+    <div class="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+        {{ field_errors.form }}
+    </div>
+    {% endif %}
 
     <div class="flex gap-3 pt-2">
         <button type="submit"

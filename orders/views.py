@@ -34,6 +34,14 @@ from butterfly_landing_page.models import About
 from customers.models import Customer
 
 
+#: Ceiling for a single money field, from Order.total's max_digits=10,
+#: decimal_places=2. Checked here rather than left to the DB layer because
+#: a value that only fails at save time comes back as an unnamed
+#: ValidationError, and an unnamed error means staff retype a whole form to
+#: find out which box was wrong.
+MAX_MONEY = Decimal("9999999999.99")
+
+
 def _parse_money(value, field_label):
     """Validate a money input without touching the DB.
 
@@ -48,7 +56,142 @@ def _parse_money(value, field_label):
         return None, f"{field_label} must be a number."
     if amount < 0:
         return None, f"{field_label} cannot be negative."
+    if amount > MAX_MONEY:
+        return None, f"{field_label} is too large."
     return amount, None
+
+
+def _parse_promised_date(raw):
+    """Validate a promised-date input without touching the DB.
+
+    Why at all: this was the field that forced the old catch-all message
+    "Invalid total, material cost, or date. Please check the values." - a
+    mistyped date produced an error that named neither the field nor the
+    problem. parse_date() returns None for anything that is not an ISO date,
+    which is exactly the input a <input type="date"> posts when it has been
+    tampered with or carried over from another locale.
+
+    Args:
+        raw: the submitted string, or None/blank for "no promise yet".
+
+    Returns:
+        (date|None, error|None) - error is None unless the value is present
+        and unreadable, so a blank field stays a legitimate "not promised".
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None, None
+    parsed = parse_date(raw)
+    if parsed is None:
+        return None, "Promised date must be a real date."
+    return parsed, None
+
+
+def _raw_item_rows(request):
+    """Rebuild the line-item rows exactly as staff typed them, for redisplay.
+
+    Why this exists: the parsed rows cannot be used when parsing is what
+    failed, and dropping them would mean the row that needs fixing takes the
+    other four with it. So the raw strings go back on screen unvalidated.
+
+    They are never saved from here - they exist only to be shown. The uneven
+    list case (a mangled form) falls back to blank rows, because zipping it
+    would silently fabricate a plausible-looking subset of what was typed.
+
+    Args:
+        request: the POST request.
+
+    Returns:
+        A list of dicts shaped like OrderItem for the row template, or None
+        when the five repeated field lists do not line up.
+    """
+    lists = [
+        request.POST.getlist("item_id"),
+        request.POST.getlist("item_description"),
+        request.POST.getlist("item_quantity"),
+        request.POST.getlist("item_price"),
+        request.POST.getlist("item_material"),
+    ]
+    if len({len(values) for values in lists}) != 1:
+        return None
+    return [
+        dict(zip(("id", "description", "quantity", "price", "material_source"), values))
+        for values in zip(*lists)
+    ]
+
+
+def _order_form_context(
+    *,
+    order=None,
+    form_values=None,
+    field_errors=None,
+    selected_customer=None,
+    item_rows=None,
+):
+    """Build the context both order forms render from, on GET and on error.
+
+    Why one builder instead of two inline dicts: the whole point of this
+    change is that a rejected POST looks exactly like a GET except for the
+    values it keeps. Two hand-maintained dicts would drift, and the day one
+    of them forgets a key is the day staff lose their work again.
+
+    Why `form_values` rather than mutating `order` in the error path: money
+    and date fields may not have parsed, so there is nothing typed to put on
+    the model. Keeping the raw POST alongside means the model object stays
+    a faithful reflection of what is actually stored.
+
+    Args:
+        order: the Order being edited, or None when creating.
+        form_values: dict of the raw submitted fields to redisplay. When it
+            is None the values are derived instead - from the order on edit,
+            blank on create - so the templates have one source for every
+            field and never need a `default:` fallback that would silently
+            substitute the stored value for the one just typed.
+        field_errors: dict keyed by field name (plus "form" for anything
+            that does not belong to one field).
+        selected_customer: preselected Customer for the create form.
+        item_rows: rows for the editor; defaults to two blank rows on
+            create, and the order's lines plus one blank on edit.
+
+    Returns:
+        dict for render().
+    """
+    if form_values is None:
+        if order is None:
+            form_values = {
+                "service_type": ServiceType.OTHER,
+                "description": "",
+                "total": "",
+                "material_cost": "",
+                "promised_date": "",
+                "notes": "",
+            }
+        else:
+            # Blanks, not None: these are typed into <input> elements, and an
+            # empty box must round-trip as an empty box rather than the word
+            # "None". Clearing a field and getting it back re-filled is the
+            # same class of bug this helper exists to prevent.
+            form_values = {
+                "service_type": order.service_type,
+                "description": order.description or "",
+                "total": "" if order.total is None else str(order.total),
+                "material_cost": "" if order.material_cost is None else str(order.material_cost),
+                "promised_date": order.promised_date.isoformat() if order.promised_date else "",
+                "notes": order.notes or "",
+            }
+    if item_rows is None:
+        item_rows = [None, None] if order is None else list(order.items.all()) + [None]
+    context = {
+        "order": order,
+        "service_choices": ServiceType.choices,
+        "form_values": form_values,
+        "item_rows": item_rows,
+        "material_choices": ITEM_MATERIAL_CHOICES,
+        "field_errors": field_errors or {},
+    }
+    if selected_customer is not None:
+        context["selected_customer"] = selected_customer
+    return context
 
 
 def _parse_quantity(raw):
@@ -558,58 +701,93 @@ def order_card_advance(request, order_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def order_create(request):
-    """Create a new order with optional customer selection or inline creation."""
+    """Create a new order with optional customer selection or inline creation.
+
+    Why errors re-render instead of redirecting: every failure used to land on
+    a blank form, so one mistyped date cost staff the customer, the
+    description, every item row and the price. Redirecting is only correct when
+    there is nothing worth carrying over; here the entire value of the page is
+    what was typed into it. The contract is now: a valid POST redirects to the
+    order, an invalid POST answers 400 with your own input still on screen.
+    """
     if request.method == "POST":
+        # Raw values, kept whole so a rejected POST can be shown back intact.
+        # Nothing here reaches the DB until every field has passed.
+        form_values = {
+            "service_type": request.POST.get("service_type") or ServiceType.OTHER,
+            "description": (request.POST.get("description") or "").strip(),
+            # No `or "0"`: a blank box must reach _parse_money as blank, so it
+            # stays None. Coercing to "0" here would record an order as agreed
+            # to be free the moment someone leaves the field empty.
+            "total": request.POST.get("total"),
+            "material_cost": request.POST.get("material_cost") or None,
+            "promised_date": request.POST.get("promised_date") or None,
+            "notes": (request.POST.get("notes") or "").strip(),
+        }
         customer_id = request.POST.get("customer")
         customer_name = (request.POST.get("customer_name") or "").strip()
         customer_phone = (request.POST.get("customer_phone") or "").strip()
-        service_type = request.POST.get("service_type") or ServiceType.OTHER
-        description = (request.POST.get("description") or "").strip()
-        # No `or "0"`: a blank box must reach _parse_money as blank, so it
-        # stays None. Coercing to "0" here would record an order as agreed to
-        # be free the moment someone leaves the field empty.
-        total_raw = request.POST.get("total")
-        material_raw = request.POST.get("material_cost") or None
-        promised_date = request.POST.get("promised_date") or None
-        notes = (request.POST.get("notes") or "").strip()
 
-        total, total_error = _parse_money(total_raw, "Total")
-        material_cost, material_error = _parse_money(material_raw, "Material cost")
-        if total_error or material_error:
-            messages.error(request, total_error or material_error)
-            return redirect("orders:create")
-
+        field_errors = {}
+        total, total_error = _parse_money(form_values["total"], "Total")
+        if total_error:
+            field_errors["total"] = total_error
+        material_cost, material_error = _parse_money(form_values["material_cost"], "Material cost")
+        if material_error:
+            field_errors["material_cost"] = material_error
+        promised_date, date_error = _parse_promised_date(form_values["promised_date"])
+        if date_error:
+            field_errors["promised_date"] = date_error
         items, items_error = _items_from_post(request)
         if items_error:
-            messages.error(request, items_error)
-            return redirect("orders:create")
+            field_errors["item_rows"] = items_error
+        if form_values["service_type"] not in ServiceType.values:
+            field_errors["service_type"] = "Invalid service type."
+        if not (customer_id or (customer_name and customer_phone)):
+            field_errors["customer"] = (
+                "Select an existing customer, or enter a name and phone for a new one."
+            )
 
-        if service_type not in ServiceType.values:
-            messages.error(request, "Invalid service type.")
-            return redirect("orders:create")
+        selected_customer = (
+            Customer.objects.filter(id=customer_id).first() if customer_id else None
+        )
+        if customer_id and selected_customer is None:
+            field_errors["customer"] = "That customer is no longer available - please search again."
+
+        if field_errors:
+            return render(
+                request,
+                "shop/orders/create.html",
+                _order_form_context(
+                    form_values=form_values,
+                    field_errors=field_errors,
+                    selected_customer=selected_customer,
+                    # The raw rows, not the parsed ones: when a quantity is
+                    # rejected, the other four rows are still worth keeping.
+                    item_rows=_raw_item_rows(request) or [None, None],
+                ),
+                status=400,
+            )
 
         # Resolve or create customer
         if customer_id:
-            customer = get_object_or_404(Customer, id=customer_id)
-        elif customer_name and customer_phone:
+            customer = selected_customer
+        else:
             customer = Customer.objects.create(
                 name=customer_name,
                 phone=customer_phone,
                 created_by=request.user,
             )
-        else:
-            messages.error(request, "Select an existing customer or enter name + phone for a new one.")
-            return redirect("orders:create")
 
         try:
             order = Order.objects.create(
                 customer=customer,
-                service_type=service_type,
-                description=description,
+                service_type=form_values["service_type"],
+                description=form_values["description"],
                 total=total,
                 material_cost=material_cost or None,
                 promised_date=promised_date or None,
-                notes=notes,
+                notes=form_values["notes"],
                 created_by=request.user,
             )
             # Freeze this customer's measurements onto the order, so the
@@ -620,9 +798,21 @@ def order_create(request):
             # Same helper as the edit view: a fresh order has no lines yet, so
             # the reconcile degenerates to "create everything".
             _apply_items(order, items)
-        except ValidationError:
-            messages.error(request, "Invalid total, material cost, or date. Please check the values.")
-            return redirect("orders:create")
+        except (ValidationError, ValueError, TypeError) as exc:
+            # Belt and braces: money and dates are validated above, so reaching
+            # here means something upstream changed. Redirecting would be the
+            # old bug back again, so the same context goes out with the reason.
+            return render(
+                request,
+                "shop/orders/create.html",
+                _order_form_context(
+                    form_values=form_values,
+                    field_errors={"form": "That order could not be saved: " + str(exc)},
+                    selected_customer=selected_customer,
+                    item_rows=_raw_item_rows(request) or [None, None],
+                ),
+                status=400,
+            )
         messages.success(request, f"Order {order.order_number} created.")
         return redirect("orders:detail", order_id=order.id)
 
@@ -634,15 +824,7 @@ def order_create(request):
     return render(
         request,
         "shop/orders/create.html",
-        {
-            "selected_customer": selected_customer,
-            "service_choices": ServiceType.choices,
-            # Two blank rows so the shape of the editor is visible without
-            # staff having to press something first. Blank rows are skipped
-            # on the way back in.
-            "item_rows": [None, None],
-            "material_choices": ITEM_MATERIAL_CHOICES,
-        },
+        _order_form_context(selected_customer=selected_customer),
     )
 
 
@@ -751,54 +933,84 @@ def order_advance_stage(request, order_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def order_edit(request, order_id):
-    """Edit order basic fields."""
+    """Edit order basic fields.
+
+    Same contract as order_create: a valid POST redirects to the order, an
+    invalid one answers 400 with everything you typed still on screen. Editing
+    is the more dangerous of the two to lose - the customer's details and
+    itemised lines were already there before you opened the page, and a
+    redirect used to replace them with the stored values instead of yours.
+    """
     order = get_object_or_404(Order, id=order_id)
 
     if request.method == "POST":
-        service_type = request.POST.get("service_type") or order.service_type
-        if service_type not in ServiceType.values:
-            messages.error(request, "Invalid service type.")
-            return redirect("orders:edit", order_id=order.id)
-        order.service_type = service_type
-        order.description = (request.POST.get("description") or "").strip()
-        total_raw = request.POST.get("total")
-        material_raw = request.POST.get("material_cost")
+        # Raw values as typed. The model is only written once every field has
+        # passed, so `order` below is never left half-updated by a failure.
+        form_values = {
+            "service_type": request.POST.get("service_type") or order.service_type,
+            "description": (request.POST.get("description") or "").strip(),
+            "total": request.POST.get("total"),
+            "material_cost": request.POST.get("material_cost"),
+            "promised_date": request.POST.get("promised_date"),
+            "notes": (request.POST.get("notes") or "").strip(),
+        }
+        field_errors = {}
+        if form_values["service_type"] not in ServiceType.values:
+            field_errors["service_type"] = "Invalid service type."
         # Blank means "not agreed yet", not "keep whatever was there". The
         # total is optional now, and an edit form that silently refused to
         # clear a value would be the more surprising of the two readings.
         # Material cost, just below, already behaves this way.
-        total, total_error = _parse_money(total_raw, "Total")
-        material_cost, material_error = _parse_money(material_raw, "Material cost")
-        if total_error or material_error:
-            messages.error(request, total_error or material_error)
-            return redirect("orders:edit", order_id=order.id)
+        total, total_error = _parse_money(form_values["total"], "Total")
+        if total_error:
+            field_errors["total"] = total_error
+        material_cost, material_error = _parse_money(form_values["material_cost"], "Material cost")
+        if material_error:
+            field_errors["material_cost"] = material_error
+        promised_date, date_error = _parse_promised_date(form_values["promised_date"])
+        if date_error:
+            field_errors["promised_date"] = date_error
         items, items_error = _items_from_post(request)
         if items_error:
-            messages.error(request, items_error)
-            return redirect("orders:edit", order_id=order.id)
+            field_errors["item_rows"] = items_error
+
+        if field_errors:
+            return render(
+                request,
+                "shop/orders/edit.html",
+                _order_form_context(
+                    order=order,
+                    form_values=form_values,
+                    field_errors=field_errors,
+                    # Same reasoning as create: keep the rows as typed, so the
+                    # one rejected quantity does not take its siblings with it.
+                    item_rows=_raw_item_rows(request) or list(order.items.all()) + [None],
+                ),
+                status=400,
+            )
+
+        order.service_type = form_values["service_type"]
+        order.description = form_values["description"]
         order.total = total
         order.material_cost = material_cost
-        promised_date = request.POST.get("promised_date")
-        order.promised_date = promised_date if promised_date else None
-        order.notes = (request.POST.get("notes") or "").strip()
+        order.promised_date = promised_date
+        order.notes = form_values["notes"]
         try:
             order.save()
-        except ValidationError:
-            messages.error(request, "Invalid total, material cost, or date. Please check the values.")
-            return redirect("orders:edit", order_id=order.id)
+        except (ValidationError, ValueError, TypeError) as exc:
+            return render(
+                request,
+                "shop/orders/edit.html",
+                _order_form_context(
+                    order=order,
+                    form_values=form_values,
+                    field_errors={"form": "That order could not be saved: " + str(exc)},
+                    item_rows=_raw_item_rows(request) or list(order.items.all()) + [None],
+                ),
+                status=400,
+            )
         _apply_items(order, items)
         messages.success(request, "Order updated.")
         return redirect("orders:detail", order_id=order.id)
 
-    return render(
-        request,
-        "shop/orders/edit.html",
-        {
-            "order": order,
-            "service_choices": ServiceType.choices,
-            # One blank row after the existing lines, so adding another is
-            # just filling it in rather than hunting for a button.
-            "item_rows": list(order.items.all()) + [None],
-            "material_choices": ITEM_MATERIAL_CHOICES,
-        },
-    )
+    return render(request, "shop/orders/edit.html", _order_form_context(order=order))
