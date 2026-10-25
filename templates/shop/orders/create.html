@@ -26,6 +26,16 @@
             <input type="hidden" name="customer" id="customer-id"
                    value="{% if selected_customer %}{{ selected_customer.id }}{% endif %}">
 
+            <!-- Inline error for a missing customer. One element does both
+                 jobs: the server paints it when a POST was rejected, and the
+                 submit handler below shows it before anything is sent. Why not
+                 alert(): the old modal covered a half-filled form and hid
+                 exactly the fields staff were about to recheck. -->
+            <div id="customer-error"
+                 class="{% if not field_errors.customer %}hidden{% endif %} mb-3 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+                {% if field_errors.customer %}{{ field_errors.customer }}{% else %}Select an existing customer, or enter a name and phone for a new one.{% endif %}
+            </div>
+
             <!-- Selected customer chip -->
             <div id="selected-customer" class="{% if not selected_customer %}hidden{% endif %} mb-3">
                 <div class="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3">
@@ -86,10 +96,14 @@
 
             <div class="mb-4">
                 <label class="block text-sm font-medium text-slate-700 mb-2">Service Type</label>
+                {% if field_errors.service_type %}
+                <div class="mb-2 text-sm text-red-600">{{ field_errors.service_type }}</div>
+                {% endif %}
                 <div class="grid grid-cols-2 gap-3">
                     {% for value, label in service_choices %}
                     <label class="border border-slate-300 rounded-xl p-3 text-center cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
-                        <input type="radio" name="service_type" value="{{ value }}" class="sr-only" {% if value == 'other' %}checked{% endif %}>
+                        <input type="radio" name="service_type" value="{{ value }}" class="sr-only"
+                               {% if value == form_values.service_type %}checked{% endif %}>
                         <span class="font-medium text-sm">{{ label }}</span>
                     </label>
                     {% endfor %}
@@ -99,8 +113,14 @@
             <div class="mb-4">
                 <label for="description" class="block text-sm font-medium text-slate-700 mb-1">Description</label>
                 <textarea name="description" id="description" rows="3" placeholder="Blouse with lining, princess cut…"
-                          class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"></textarea>
+                          class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">{{ form_values.description }}</textarea>
             </div>
+
+            {% if field_errors.item_rows %}
+            <div class="mb-3 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+                {{ field_errors.item_rows }}
+            </div>
+            {% endif %}
 
             {% include "shop/orders/_item_rows.html" %}
 
@@ -108,14 +128,22 @@
                 <div>
                     <label for="total" class="block text-sm font-medium text-slate-700 mb-1">Total (₹)</label>
                     <input type="number" name="total" id="total" step="0.01" min="0"
+                           value="{{ form_values.total }}"
                            placeholder="Not agreed yet"
                            class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
                     <p class="text-xs text-slate-500 mt-1">Optional — fill it in once the price is agreed.</p>
+                    {% if field_errors.total %}
+                    <p class="text-xs text-red-600 mt-1">{{ field_errors.total }}</p>
+                    {% endif %}
                 </div>
                 <div>
                     <label for="material_cost" class="block text-sm font-medium text-slate-700 mb-1">Material (₹)</label>
                     <input type="number" name="material_cost" id="material_cost" step="0.01" min="0"
+                           value="{{ form_values.material_cost }}"
                            class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                    {% if field_errors.material_cost %}
+                    <p class="text-xs text-red-600 mt-1">{{ field_errors.material_cost }}</p>
+                    {% endif %}
                 </div>
             </div>
 
@@ -123,14 +151,25 @@
                 <div>
                     <label for="promised_date" class="block text-sm font-medium text-slate-700 mb-1">Promised date</label>
                     <input type="date" name="promised_date" id="promised_date"
+                           value="{{ form_values.promised_date }}"
                            class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                    {% if field_errors.promised_date %}
+                    <p class="text-xs text-red-600 mt-1">{{ field_errors.promised_date }}</p>
+                    {% endif %}
                 </div>
                 <div>
                     <label for="notes" class="block text-sm font-medium text-slate-700 mb-1">Internal notes</label>
                     <input type="text" name="notes" id="notes"
+                           value="{{ form_values.notes }}"
                            class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
                 </div>
             </div>
+
+            {% if field_errors.form %}
+            <div class="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+                {{ field_errors.form }}
+            </div>
+            {% endif %}
 
             <button type="submit"
                     class="w-full bg-slate-900 text-white text-lg font-bold px-4 py-3.5 rounded-xl hover:bg-indigo-600 transition-colors">
@@ -148,6 +187,7 @@ function selectCustomer(id, name, phone) {
     document.getElementById('selected-customer').classList.remove('hidden');
     document.getElementById('customer-search-box').classList.add('hidden');
     document.getElementById('new-customer-fields').classList.add('hidden');
+    document.getElementById('customer-error').classList.add('hidden');
 }
 function clearCustomer() {
     document.getElementById('customer-id').value = '';
@@ -164,14 +204,26 @@ function showSearch() {
     document.getElementById('customer-search-box').classList.remove('hidden');
 }
 document.getElementById('order-form').addEventListener('submit', function (e) {
+    var errorBox = document.getElementById('customer-error');
     var hasCustomer = document.getElementById('customer-id').value !== '';
     var newVisible = !document.getElementById('new-customer-fields').classList.contains('hidden');
-    var name = document.getElementById('customer_name').value.trim();
-    var phone = document.getElementById('customer_phone').value.trim();
-    if (!hasCustomer && !(newVisible && name && phone)) {
-        e.preventDefault();
-        alert('Please select a customer or enter a new customer name + phone.');
-    }
+    var nameField = document.getElementById('customer_name');
+    var phoneField = document.getElementById('customer_phone');
+    var complete = hasCustomer || (newVisible && nameField.value.trim() && phoneField.value.trim());
+    if (complete) return;
+    e.preventDefault();
+    // Why not alert(): a modal over a half-filled form hides exactly the
+    // fields staff are about to recheck. This puts the message beside the
+    // panel it belongs to and drops the caret into the field to fix.
+    errorBox.classList.remove('hidden');
+    (newVisible ? nameField : document.getElementById('customer-search')).focus();
+});
+// The red box clears as soon as the problem is being addressed - a stale
+// error over a form that has since been corrected reads as a second problem.
+['customer_name', 'customer_phone'].forEach(function (id) {
+    document.getElementById(id).addEventListener('input', function () {
+        document.getElementById('customer-error').classList.add('hidden');
+    });
 });
 </script>
 {% endblock %}

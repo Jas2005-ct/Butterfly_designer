@@ -551,7 +551,11 @@ class BoardVolumeTests(TestCase):
                 "total": "not-a-number",
             },
         )
-        self.assertRedirects(response, reverse("orders:create"))
+        # 400 rather than a redirect: the old contract bounced to a blank
+        # form, which is what made a single bad field cost staff every other
+        # field on the page.
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Total must be a number.", status_code=400)
         self.assertFalse(Order.objects.exists())
 
     def test_stage_advance_invalid_returns_400(self):
@@ -1371,3 +1375,163 @@ class PartialDeliveryTests(TestCase):
         bare = Order.objects.create(customer=self.customer)
         response = self.client.get(reverse("orders:track", args=[bare.track_token]))
         self.assertNotContains(response, "Handed over so far")
+
+
+class OrderFormKeepsTypedValuesTests(TestCase):
+    """A rejected form must hand back everything that was typed into it.
+
+    The old behaviour was a redirect to a blank form, so the failure mode was
+    never "one red message" - it was "the whole page resets". These tests pin
+    the replacement contract: a valid POST still redirects to the order, an
+    invalid one answers 400 and re-renders with your own input on screen, and
+    the message names the field at fault instead of guessing three of them at
+    once.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="mgr", password="secret123")
+        self.client.login(username="mgr", password="secret123")
+        self.customer = Customer.objects.create(name="Priya", phone="9876543210")
+
+    def assertRejected(self, response, text):
+        """The 400 contract this class exists to pin.
+
+        Why a helper rather than status_code=400 at every call site: nineteen
+        assertions would repeat it and the first one someone forgets would
+        silently expect 200 again.
+        """
+        self.assertContains(response, text, status_code=400)
+
+    def assertRejectedOmits(self, response, text):
+        self.assertNotContains(response, text, status_code=400)
+
+    def create_payload(self, **overrides):
+        """A complete, valid create-POST that tests can break one field at a time."""
+        payload = {
+            "customer": str(self.customer.id),
+            "service_type": "blouse",
+            "description": "Princess cut with lining",
+            "total": "1500",
+            "promised_date": "2026-11-01",
+            "notes": "customer wants narrow sleeves",
+            "item_id": ["", ""],
+            "item_description": ["Blouse with lining", "Saree border"],
+            "item_quantity": ["1", "2"],
+            "item_price": ["700", "100"],
+            "item_material": ["shop", "shop"],
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_a_rejected_post_renders_the_form_with_its_values(self):
+        response = self.client.post(reverse("orders:create"), self.create_payload(total="oops"))
+        self.assertEqual(response.status_code, 400)
+        self.assertRejected(response, "Total must be a number.")
+        # Everything else the counter staff typed is still there.
+        self.assertRejected(response, "Princess cut with lining")
+        self.assertRejected(response, "customer wants narrow sleeves")
+        self.assertRejected(response, 'value="2026-11-01"')
+        self.assertRejected(response, "Blouse with lining")
+        self.assertRejected(response, "Saree border")
+        self.assertFalse(Order.objects.exists())
+
+    def test_a_bad_date_names_its_own_field(self):
+        """The catch-all this replaces was the worst part: it named three
+        possible fields and told staff to guess which."""
+        response = self.client.post(
+            reverse("orders:create"), self.create_payload(promised_date="25-11-2026")
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertRejected(response, "Promised date must be a real date.")
+        self.assertRejectedOmits(response, "Please check the values.")
+        self.assertFalse(Order.objects.exists())
+
+    def test_a_bad_item_quantity_keeps_its_sibling_rows(self):
+        """Only the offending row needed fixing; the other four were fine."""
+        response = self.client.post(
+            reverse("orders:create"),
+            self.create_payload(item_quantity=["1", "0"], item_price=["700", "oops"]),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertRejected(response, "Item 2")
+        # Both rows come back as typed, unvalidated, because parsing is
+        # exactly what failed.
+        self.assertRejected(response, "Blouse with lining")
+        self.assertRejected(response, "Saree border")
+        self.assertRejected(response, 'value="1"')
+        self.assertFalse(Order.objects.exists())
+
+    def test_missing_customer_keeps_the_form(self):
+        """The old path redirected here and dropped the order details too."""
+        response = self.client.post(
+            reverse("orders:create"),
+            self.create_payload(customer="", customer_name="", customer_phone=""),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertRejected(response, "Select an existing customer")
+        self.assertRejected(response, "Princess cut with lining")
+        self.assertFalse(Order.objects.exists())
+
+    def test_money_beyond_the_column_limit_never_reaches_the_db(self):
+        """A 16-digit total used to parse cleanly, reach save() and come back
+        as an unnamed ValidationError - which is how the old catch-all message
+        happened at all."""
+        response = self.client.post(
+            reverse("orders:create"), self.create_payload(total="99999999999999")
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertRejected(response, "Total is too large.")
+        self.assertFalse(Order.objects.exists())
+
+    def test_edit_valid_post_still_redirects(self):
+        order = Order.objects.create(customer=self.customer, total=Decimal("500.00"))
+        response = self.client.post(
+            reverse("orders:edit", args=[order.id]),
+            self.create_payload(total="750.00", description="Narrow sleeves"),
+        )
+        self.assertRedirects(response, reverse("orders:detail", args=[order.id]))
+        order.refresh_from_db()
+        self.assertEqual(order.total, Decimal("750.00"))
+        self.assertEqual(order.description, "Narrow sleeves")
+
+    def test_edit_rejected_post_leaves_the_stored_order_alone(self):
+        order = Order.objects.create(
+            customer=self.customer, total=Decimal("500.00"), description="Stored wording"
+        )
+        response = self.client.post(
+            reverse("orders:edit", args=[order.id]),
+            self.create_payload(total="oops"),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertRejected(response, "Total must be a number.")
+        # Your rejected input, not the stored copy.
+        self.assertRejected(response, "Princess cut with lining")
+        order.refresh_from_db()
+        self.assertEqual(order.total, Decimal("500.00"))
+        self.assertEqual(order.description, "Stored wording")
+
+    def test_edit_clearing_a_field_survives_a_later_error(self):
+        """Why values do not fall back to the model: a cleared description plus
+        a bad total must come back empty, not silently re-filled with what was
+        stored - that would be the data-loss bug in a subtler costume."""
+        order = Order.objects.create(customer=self.customer, description="Stored wording")
+        response = self.client.post(
+            reverse("orders:edit", args=[order.id]),
+            self.create_payload(description="", total="oops"),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertRejectedOmits(response, "Stored wording")
+
+    def test_edit_get_renders_the_stored_values(self):
+        """The flip side: form_values is derived from the order on GET, so the
+        edit form still opens full rather than empty."""
+        order = Order.objects.create(
+            customer=self.customer,
+            total=Decimal("5000.00"),
+            description="Stored wording",
+            promised_date=date(2026, 11, 1),
+        )
+        response = self.client.get(reverse("orders:edit", args=[order.id]))
+        self.assertContains(response, 'value="5000.00"')
+        self.assertContains(response, "Stored wording")
+        self.assertContains(response, 'value="2026-11-01"')
