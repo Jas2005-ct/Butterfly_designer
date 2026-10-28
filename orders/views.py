@@ -6,16 +6,41 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Prefetch, Q
-from django.http import HttpResponse, HttpResponseBadRequest
+from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_http_methods, require_POST
 
-from .models import Order, OrderStage, OrderStageHistory, ServiceType
-from .services import STAGE_EMOJI, STAGE_ORDER, VALID_NEXT_STAGES, advance_stage, stage_labels_for
+from .models import (
+    MaterialSource,
+    Order,
+    OrderItem,
+    OrderStage,
+    OrderStageHistory,
+    ServiceType,
+)
+from .services import (
+    STAGE_EMOJI,
+    STAGE_ORDER,
+    VALID_NEXT_STAGES,
+    advance_stage,
+    record_delivery,
+    snapshot_measurements,
+    stage_labels_for,
+)
 from billing.services import annotate_balances, payment_section_context
 from butterfly_landing_page.models import About
 from customers.models import Customer
+
+
+#: Ceiling for a single money field, from Order.total's max_digits=10,
+#: decimal_places=2. Checked here rather than left to the DB layer because
+#: a value that only fails at save time comes back as an unnamed
+#: ValidationError, and an unnamed error means staff retype a whole form to
+#: find out which box was wrong.
+MAX_MONEY = Decimal("9999999999.99")
 
 
 def _parse_money(value, field_label):
@@ -32,10 +57,354 @@ def _parse_money(value, field_label):
         return None, f"{field_label} must be a number."
     if amount < 0:
         return None, f"{field_label} cannot be negative."
+    if amount > MAX_MONEY:
+        return None, f"{field_label} is too large."
     return amount, None
 
 
+def _parse_promised_date(raw):
+    """Validate a promised-date input without touching the DB.
+
+    Why at all: this was the field that forced the old catch-all message
+    "Invalid total, material cost, or date. Please check the values." - a
+    mistyped date produced an error that named neither the field nor the
+    problem. parse_date() returns None for anything that is not an ISO date,
+    which is exactly the input a <input type="date"> posts when it has been
+    tampered with or carried over from another locale.
+
+    Args:
+        raw: the submitted string, or None/blank for "no promise yet".
+
+    Returns:
+        (date|None, error|None) - error is None unless the value is present
+        and unreadable, so a blank field stays a legitimate "not promised".
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None, None
+    parsed = parse_date(raw)
+    if parsed is None:
+        return None, "Promised date must be a real date."
+    return parsed, None
+
+
+def _raw_item_rows(request):
+    """Rebuild the line-item rows exactly as staff typed them, for redisplay.
+
+    Why this exists: the parsed rows cannot be used when parsing is what
+    failed, and dropping them would mean the row that needs fixing takes the
+    other four with it. So the raw strings go back on screen unvalidated.
+
+    They are never saved from here - they exist only to be shown. The uneven
+    list case (a mangled form) falls back to blank rows, because zipping it
+    would silently fabricate a plausible-looking subset of what was typed.
+
+    Args:
+        request: the POST request.
+
+    Returns:
+        A list of dicts shaped like OrderItem for the row template, or None
+        when the five repeated field lists do not line up.
+    """
+    lists = [
+        request.POST.getlist("item_id"),
+        request.POST.getlist("item_description"),
+        request.POST.getlist("item_quantity"),
+        request.POST.getlist("item_price"),
+        request.POST.getlist("item_material"),
+    ]
+    if len({len(values) for values in lists}) != 1:
+        return None
+    return [
+        dict(zip(("id", "description", "quantity", "price", "material_source"), values))
+        for values in zip(*lists)
+    ]
+
+
+def _order_form_context(
+    *,
+    order=None,
+    form_values=None,
+    field_errors=None,
+    selected_customer=None,
+    item_rows=None,
+):
+    """Build the context both order forms render from, on GET and on error.
+
+    Why one builder instead of two inline dicts: the whole point of this
+    change is that a rejected POST looks exactly like a GET except for the
+    values it keeps. Two hand-maintained dicts would drift, and the day one
+    of them forgets a key is the day staff lose their work again.
+
+    Why `form_values` rather than mutating `order` in the error path: money
+    and date fields may not have parsed, so there is nothing typed to put on
+    the model. Keeping the raw POST alongside means the model object stays
+    a faithful reflection of what is actually stored.
+
+    Args:
+        order: the Order being edited, or None when creating.
+        form_values: dict of the raw submitted fields to redisplay. When it
+            is None the values are derived instead - from the order on edit,
+            blank on create - so the templates have one source for every
+            field and never need a `default:` fallback that would silently
+            substitute the stored value for the one just typed.
+        field_errors: dict keyed by field name (plus "form" for anything
+            that does not belong to one field).
+        selected_customer: preselected Customer for the create form.
+        item_rows: rows for the editor; defaults to two blank rows on
+            create, and the order's lines plus one blank on edit.
+
+    Returns:
+        dict for render().
+    """
+    if form_values is None:
+        if order is None:
+            form_values = {
+                "service_type": ServiceType.OTHER,
+                "description": "",
+                "total": "",
+                "material_cost": "",
+                "promised_date": "",
+                "notes": "",
+            }
+        else:
+            # Blanks, not None: these are typed into <input> elements, and an
+            # empty box must round-trip as an empty box rather than the word
+            # "None". Clearing a field and getting it back re-filled is the
+            # same class of bug this helper exists to prevent.
+            form_values = {
+                "service_type": order.service_type,
+                "description": order.description or "",
+                "total": "" if order.total is None else str(order.total),
+                "material_cost": "" if order.material_cost is None else str(order.material_cost),
+                "promised_date": order.promised_date.isoformat() if order.promised_date else "",
+                "notes": order.notes or "",
+            }
+    if item_rows is None:
+        # One blank row, not two: a fresh form should read as empty, and the
+        # second row only ever existed to show that rows can be added - which
+        # the "+ Add another item" button below it already says.
+        item_rows = [None] if order is None else list(order.items.all()) + [None]
+    context = {
+        "order": order,
+        "service_choices": ServiceType.choices,
+        "form_values": form_values,
+        "item_rows": item_rows,
+        "material_choices": ITEM_MATERIAL_CHOICES,
+        "field_errors": field_errors or {},
+    }
+    if selected_customer is not None:
+        context["selected_customer"] = selected_customer
+    return context
+
+
+def _parse_quantity(raw):
+    """Validate a line-item quantity.
+
+    A blank box means one: a row is only on the form because staff typed a
+    description for it, and nobody writes "0 blouses". Zero and negatives are
+    rejected rather than coerced, because they make a line that can never be
+    handed over - which would silently cap what the order can deliver once
+    partial delivery lands on top of this.
+
+    Args:
+        raw: the submitted string, possibly blank.
+
+    Returns:
+        (value, error) - value is an int of at least 1, or None when the
+        input is not a whole number.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return 1, None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None, "quantity must be a whole number of at least 1."
+    if value < 1:
+        return None, "quantity must be a whole number of at least 1."
+    return value, None
+
+
+def _items_from_post(request):
+    """Read the line-item editor out of a submitted order form.
+
+    Rows reach the server as five parallel lists of repeated field names, so
+    they are zipped back together. A row whose id is unreadable is rejected
+    rather than treated as new: quietly duplicating a line the staff already
+    had would lose the original when the form is reconciled.
+
+    Rows left completely blank are dropped rather than rejected - the editor
+    ships with empty rows so staff can add another without hunting for a
+    button.
+
+    Args:
+        request: the POST request.
+
+    Returns:
+        (items, error) - items is a list of dicts, each carrying id (None for
+        a new row), description, quantity, price and material_source, ready
+        to hand to the ORM. error is None, or a message naming the row that
+        needs fixing.
+    """
+    ids = request.POST.getlist("item_id")
+    descriptions = request.POST.getlist("item_description")
+    quantities = request.POST.getlist("item_quantity")
+    prices = request.POST.getlist("item_price")
+    sources = request.POST.getlist("item_material")
+
+    # zip() would truncate to the shortest list, silently dropping whatever
+    # the extra rows carried. Every row contributes all five inputs, so
+    # uneven counts mean the form came back mangled and it is safer to say so
+    # than to save a plausible-looking subset.
+    if len({len(ids), len(descriptions), len(quantities), len(prices), len(sources)}) > 1:
+        return None, "The item rows came back incomplete - please reload and try again."
+
+    items = []
+    for index, (row_id, description, quantity_raw, price_raw, source) in enumerate(
+        zip(ids, descriptions, quantities, prices, sources), start=1
+    ):
+        description = description.strip()
+        if not description:
+            continue  # an untouched blank row
+
+        try:
+            item_id = int(row_id) if row_id else None
+        except ValueError:
+            return None, f"Item {index}: unreadable row reference."
+
+        quantity, quantity_error = _parse_quantity(quantity_raw)
+        if quantity_error:
+            return None, f"Item {index} ({description}): {quantity_error}"
+
+        price, price_error = _parse_money(price_raw, f"Item {index} ({description}) price")
+        if price_error:
+            return None, price_error
+        # Blank means free, not NULL. The column is not nullable, and a
+        # customer-supplied-cloth line legitimately costs the shop nothing -
+        # so the editor's empty box has to arrive as 0.
+        price = price if price is not None else Decimal("0")
+
+        if source not in (MaterialSource.SHOP, MaterialSource.CUSTOMER):
+            return None, f"Item {index} ({description}): unknown material source."
+
+        items.append(
+            {
+                "id": item_id,
+                "description": description,
+                "quantity": quantity,
+                "price": price,
+                "material_source": source,
+            }
+        )
+
+    return items, None
+
+
+def _apply_items(order, items):
+    """Write a submitted set of line items onto an order, in place.
+
+    Why not delete-everything-and-recreate: partial delivery will hang
+    DeliveryLine rows off OrderItem, so an edited item has to keep its
+    identity or every delivery pointing at it would be orphaned. Matching on
+    the posted row id now costs a handful of lines and avoids that rework.
+
+    Args:
+        order: the Order being edited.
+        items: dicts from _items_from_post, in the order staff listed them.
+            A dict whose "id" is None is new; one naming an existing item is
+            updated in place.
+
+    Returns:
+        None. The order's items end up matching `items` exactly, and anything
+        the staff removed from the form is deleted.
+    """
+    keep_ids = [item["id"] for item in items if item["id"]]
+    order.items.exclude(id__in=keep_ids).delete()
+
+    for item in items:
+        fields = {
+            "description": item["description"],
+            "quantity": item["quantity"],
+            "price": item["price"],
+            "material_source": item["material_source"],
+        }
+        if item["id"]:
+            # Scoped to this order: a forged row id can never reach
+            # somebody else's line.
+            OrderItem.objects.filter(id=item["id"], order=order).update(**fields)
+        else:
+            OrderItem.objects.create(order=order, **fields)
+
+
 BOARD_COLUMN_CAP = 10
+
+# What a line item's material dropdown offers. MIXED is excluded: it is only
+# ever a description of a whole order, never something staff pick for one
+# line. Written as pairs because a TextChoices member is a str subclass, so
+# looping it in a template would unpack the word "shop" into s-h-o-p.
+ITEM_MATERIAL_CHOICES = [
+    (MaterialSource.SHOP.value, MaterialSource.SHOP.label),
+    (MaterialSource.CUSTOMER.value, MaterialSource.CUSTOMER.label),
+]
+
+
+def _delivery_lines_from_post(request, order):
+    """Read the record-delivery form into (item, quantity) pairs.
+
+    Every ordered item gets a box, and staff fill in only the ones going out
+    today - "2 of the 10 blouses" is the normal case, so a blank or zero box
+    means *not in this visit* rather than an error. Anything typed that is
+    not a positive whole number is refused, because guessing at a count of
+    pieces already handed over is how a delivery record stops matching the
+    shelf.
+
+    Rows are matched against `order.items` rather than fetched by id alone:
+    a hand-crafted POST must not be able to attach another customer's line
+    to this delivery.
+
+    Args:
+        request: the POST request.
+        order: the Order whose items are eligible.
+
+    Returns:
+        (pairs, error) - pairs is a list of (OrderItem, int) ready for
+        record_delivery, or None when error carries a user-facing message.
+    """
+    item_ids = request.POST.getlist("item_id")
+    quantities = request.POST.getlist("quantity")
+
+    if len(item_ids) != len(quantities):
+        return None, "The delivery form came back incomplete - please reload."
+
+    wanted = {}
+    for raw_id, raw_quantity in zip(item_ids, quantities):
+        if not (raw_id or "").strip():
+            continue
+        raw_quantity = (raw_quantity or "").strip()
+        if raw_quantity in ("", "0"):
+            continue  # untouched: this line is not part of the visit
+        try:
+            quantity = int(raw_quantity)
+        except ValueError:
+            return None, f'Quantity "{raw_quantity}" is not a whole number.'
+        if quantity < 1:
+            return None, "A delivery must hand over at least one piece."
+        try:
+            item_id = int(raw_id)
+        except ValueError:
+            return None, "The delivery form came back unreadable - please reload."
+        wanted[item_id] = quantity
+
+    if not wanted:
+        return None, "Enter how many of each item are being handed over."
+
+    found = {item.id: item for item in order.items.filter(id__in=wanted)}
+    if set(wanted) - set(found):
+        # An id that resolves to nothing, or to another order's line.
+        return None, "That line does not belong to this order - please reload."
+
+    return [(found[item_id], wanted[item_id]) for item_id in wanted], None
 
 
 def _stage_button_context(order, user):
@@ -120,28 +489,46 @@ def _detail_status_context(order, user):
     return context
 
 
-@login_required
-def board(request):
-    """Kanban board: active orders by stage, with Delivered/Cancelled tabs.
+def _board_context(request, params):
+    """Build the full Order Board context from a QueryDict.
 
-    Why tabs: on an 8" tablet 7 columns bury the active work. The default
-    Active tab shows the 5 working stages; finished orders are one tap away.
-    Cards carry urgency badges (overdue / stuck) so staff can triage
-    without opening each order.
+    Why a shared builder: board() renders the page and order_card_advance()
+    re-renders the same markup as an HTMX fragment after a stage change.
+    One builder means the swapped-in board can never disagree with a fresh
+    page load (counts, sorting, column caps, urgency badges, due badges).
+
+    Args:
+        request: current request; the board has no user-derived state today,
+            it is taken for signature parity with the views.
+        params: QueryDict holding the view state - request.GET on a page load,
+            request.POST for the card-advance fragment (tab/view/q/show arrive
+            as hidden inputs on the advance form).
+
+    Returns:
+        dict ready to render shop/orders/board.html or its
+        shop/orders/_board_content.html fragment.
     """
-    query = request.GET.get("q", "").strip()
-    tab = request.GET.get("tab", "active")
+    # Why tabs: on an 8" tablet 7 columns bury the active work. The default
+    # Active tab shows the working stages; finished orders are one tap away.
+    # Cards carry urgency badges (overdue / stuck) so staff can triage
+    # without opening each order.
+    query = (params.get("q") or "").strip()
+    tab = params.get("tab", "active")
     if tab not in ("active", "delivered", "cancelled"):
         tab = "active"
-    view_mode = request.GET.get("view", "board")
+    view_mode = params.get("view", "board")
     if view_mode not in ("board", "list"):
         view_mode = "board"
-    show_all = request.GET.get("show") == "all"
+    show_all = params.get("show") == "all"
 
     orders_qs = (
         Order.objects.select_related("customer")
         .prefetch_related(
-            Prefetch("stage_history", queryset=OrderStageHistory.objects.order_by("changed_at"))
+            Prefetch("stage_history", queryset=OrderStageHistory.objects.order_by("changed_at")),
+            # The card's 📦 2/10 badge walks both of these; without the
+            # prefetch it would be two extra queries per card, every load.
+            "items",
+            "deliveries__lines",
         )
         .order_by("-created_at")
     )
@@ -217,25 +604,37 @@ def board(request):
     flat_orders = [o for stage in visible_stages for o in columns[stage]]
     show_all_total = total_orders if not show_all else 0
 
+    return {
+        "columns": columns,
+        "column_totals": column_totals,
+        "remaining_counts": remaining_counts,
+        "flat_orders": flat_orders,
+        "show_all_link": not show_all and total_orders > BOARD_COLUMN_CAP,
+        "show_all_total": show_all_total,
+        "stage_order": visible_stages,
+        "query": query,
+        "tab": tab,
+        "view_mode": view_mode,
+        "show_all": show_all,
+        "counts": counts,
+        "service_choices": ServiceType.choices,
+        "total_orders": total_orders,
+    }
+
+
+@login_required
+def board(request):
+    """Kanban board of active orders, with Delivered/Cancelled tabs.
+
+    Args:
+        request: GET request; the view state (q/tab/view/show) rides on the
+            query string.
+
+    Returns:
+        HttpResponse rendering shop/orders/board.html.
+    """
     return render(
-        request,
-        "shop/orders/board.html",
-        {
-            "columns": columns,
-            "column_totals": column_totals,
-            "remaining_counts": remaining_counts,
-            "flat_orders": flat_orders,
-            "show_all_link": not show_all and total_orders > BOARD_COLUMN_CAP,
-            "show_all_total": show_all_total,
-            "stage_order": visible_stages,
-            "query": query,
-            "tab": tab,
-            "view_mode": view_mode,
-            "show_all": show_all,
-            "counts": counts,
-            "service_choices": ServiceType.choices,
-            "total_orders": total_orders,
-        },
+        request, "shop/orders/board.html", _board_context(request, request.GET)
     )
 
 
@@ -247,8 +646,30 @@ def order_card_advance(request, order_id):
     Why no stage parameter: the server always moves to the single valid
     forward-next stage, so a tampered request cannot skip stages, go
     backward, or cancel. Backward/cancel stay on the detail page where a
-    reason is collected. Empty body on success: HTMX removes the card/row
-    via outerHTML swap; counts + toast update client-side from HX-Trigger.
+    reason is collected.
+
+    Why a re-rendered board instead of an empty body: the previous contract
+    was `hx-swap="outerHTML"` over `HttpResponse("")`, so HTMX *deleted* the
+    card and left every column count, badge and sorting rule stale until a
+    manual page reload. Re-rendering `_board_content.html` from the same
+    `_board_context()` the page load uses makes the change visible in the
+    same tap - counts, ordering, caps and badges all come from one source.
+    The tab counts and header summary live inside that fragment too.
+
+    Args:
+        request: POST request carrying the view state (tab/view/q/show) as
+            hidden inputs so the re-render keeps the user's current tab,
+            mode and search filter.
+        order_id: primary key of the order being advanced.
+
+    Returns:
+        HttpResponse with the refreshed board fragment plus an HX-Trigger
+        header for the toast.
+
+    Raises:
+        Http404: no Order with that id.
+        HttpResponseBadRequest: no forward move is available, or
+            advance_stage rejected the transition.
     """
     order = get_object_or_404(Order, id=order_id)
     from_stage = order.stage
@@ -267,7 +688,9 @@ def order_card_advance(request, order_id):
         advance_stage(order, forward[0], request.user)
     except ValueError as e:
         return HttpResponseBadRequest(str(e))
-    response = HttpResponse("")
+    response = render(
+        request, "shop/orders/_board_content.html", _board_context(request, request.POST)
+    )
     response["HX-Trigger"] = json.dumps({
         "orderMoved": {
             "number": order.order_number,
@@ -282,57 +705,124 @@ def order_card_advance(request, order_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def order_create(request):
-    """Create a new order with optional customer selection or inline creation."""
+    """Create a new order with optional customer selection or inline creation.
+
+    Why errors re-render instead of redirecting: every failure used to land on
+    a blank form, so one mistyped date cost staff the customer, the
+    description, every item row and the price. Redirecting is only correct when
+    there is nothing worth carrying over; here the entire value of the page is
+    what was typed into it. The contract is now: a valid POST redirects to the
+    order, an invalid POST answers 400 with your own input still on screen.
+    """
     if request.method == "POST":
+        # Raw values, kept whole so a rejected POST can be shown back intact.
+        # Nothing here reaches the DB until every field has passed.
+        form_values = {
+            "service_type": request.POST.get("service_type") or ServiceType.OTHER,
+            "description": (request.POST.get("description") or "").strip(),
+            # No `or "0"`: a blank box must reach _parse_money as blank, so it
+            # stays None. Coercing to "0" here would record an order as agreed
+            # to be free the moment someone leaves the field empty.
+            "total": request.POST.get("total"),
+            "material_cost": request.POST.get("material_cost") or None,
+            "promised_date": request.POST.get("promised_date") or None,
+            "notes": (request.POST.get("notes") or "").strip(),
+        }
         customer_id = request.POST.get("customer")
         customer_name = (request.POST.get("customer_name") or "").strip()
         customer_phone = (request.POST.get("customer_phone") or "").strip()
-        service_type = request.POST.get("service_type") or ServiceType.OTHER
-        description = (request.POST.get("description") or "").strip()
-        total_raw = request.POST.get("total") or "0"
-        material_raw = request.POST.get("material_cost") or None
-        promised_date = request.POST.get("promised_date") or None
-        notes = (request.POST.get("notes") or "").strip()
 
-        total, total_error = _parse_money(total_raw, "Total")
-        material_cost, material_error = _parse_money(material_raw, "Material cost")
-        if total_error or material_error:
-            messages.error(request, total_error or material_error)
-            return redirect("orders:create")
+        field_errors = {}
+        total, total_error = _parse_money(form_values["total"], "Total")
+        if total_error:
+            field_errors["total"] = total_error
+        material_cost, material_error = _parse_money(form_values["material_cost"], "Material cost")
+        if material_error:
+            field_errors["material_cost"] = material_error
+        promised_date, date_error = _parse_promised_date(form_values["promised_date"])
+        if date_error:
+            field_errors["promised_date"] = date_error
+        items, items_error = _items_from_post(request)
+        if items_error:
+            field_errors["item_rows"] = items_error
+        if form_values["service_type"] not in ServiceType.values:
+            field_errors["service_type"] = "Invalid service type."
+        if not (customer_id or (customer_name and customer_phone)):
+            field_errors["customer"] = (
+                "Select an existing customer, or enter a name and phone for a new one."
+            )
 
-        if service_type not in ServiceType.values:
-            messages.error(request, "Invalid service type.")
-            return redirect("orders:create")
+        selected_customer = (
+            Customer.objects.filter(id=customer_id).first() if customer_id else None
+        )
+        if customer_id and selected_customer is None:
+            field_errors["customer"] = "That customer is no longer available - please search again."
+
+        if field_errors:
+            return render(
+                request,
+                "shop/orders/create.html",
+                _order_form_context(
+                    form_values=form_values,
+                    field_errors=field_errors,
+                    selected_customer=selected_customer,
+                    # The raw rows, not the parsed ones: when a quantity is
+                    # rejected, the other four rows are still worth keeping.
+                    item_rows=_raw_item_rows(request) or [None],
+                ),
+                status=400,
+            )
 
         # Resolve or create customer
         if customer_id:
-            customer = get_object_or_404(Customer, id=customer_id)
-        elif customer_name and customer_phone:
+            customer = selected_customer
+        else:
             customer = Customer.objects.create(
                 name=customer_name,
                 phone=customer_phone,
                 created_by=request.user,
             )
-        else:
-            messages.error(request, "Select an existing customer or enter name + phone for a new one.")
-            return redirect("orders:create")
 
         try:
             order = Order.objects.create(
                 customer=customer,
-                service_type=service_type,
-                description=description,
+                service_type=form_values["service_type"],
+                description=form_values["description"],
                 total=total,
                 material_cost=material_cost or None,
                 promised_date=promised_date or None,
-                notes=notes,
+                notes=form_values["notes"],
                 created_by=request.user,
             )
-        except ValidationError:
-            messages.error(request, "Invalid total, material cost, or date. Please check the values.")
-            return redirect("orders:create")
+            # Freeze this customer's measurements onto the order, so the
+            # garment can still be checked against the numbers it was cut to
+            # even after the customer is re-measured. No-op when the customer
+            # has never been measured - plenty of orders are taken first.
+            snapshot_measurements(order)
+            # Same helper as the edit view: a fresh order has no lines yet, so
+            # the reconcile degenerates to "create everything".
+            _apply_items(order, items)
+        except (ValidationError, ValueError, TypeError) as exc:
+            # Belt and braces: money and dates are validated above, so reaching
+            # here means something upstream changed. Redirecting would be the
+            # old bug back again, so the same context goes out with the reason.
+            return render(
+                request,
+                "shop/orders/create.html",
+                _order_form_context(
+                    form_values=form_values,
+                    field_errors={"form": "That order could not be saved: " + str(exc)},
+                    selected_customer=selected_customer,
+                    item_rows=_raw_item_rows(request) or [None],
+                ),
+                status=400,
+            )
         messages.success(request, f"Order {order.order_number} created.")
-        return redirect("orders:detail", order_id=order.id)
+        # Land on the payments panel. With the total optional and advances a
+        # first-class payment now, taking the money is the very next thing
+        # that happens at the counter - and a browser scrolls to the fragment
+        # on its own, so it costs no JS and no extra state.
+        return redirect(reverse("orders:detail", args=[order.id]) + "#order-payments")
 
     # GET: show form; an existing customer can be preselected via ?customer=<id>.
     selected_customer = None
@@ -342,10 +832,7 @@ def order_create(request):
     return render(
         request,
         "shop/orders/create.html",
-        {
-            "selected_customer": selected_customer,
-            "service_choices": ServiceType.choices,
-        },
+        _order_form_context(selected_customer=selected_customer),
     )
 
 
@@ -353,13 +840,64 @@ def order_create(request):
 def order_detail(request, order_id):
     """Order detail with stage buttons (HTMX) and inline payment form (Phase 3)."""
     order = get_object_or_404(
-        Order.objects.select_related("customer", "created_by").prefetch_related("items", "stage_history__changed_by"),
+        Order.objects.select_related("customer", "created_by").prefetch_related(
+            "items",
+            # Deep enough that the Deliveries card needs no further queries:
+            # the visit's lines, their item descriptions, and the per-line
+            # remaining count on the form all arrive here.
+            "deliveries__lines__order_item",
+            "items__delivery_lines",
+            "stage_history__changed_by",
+        ),
         id=order_id,
     )
     context = {"order": order, "shop": About.objects.first()}
     context.update(_detail_status_context(order, request.user))
     context.update(payment_section_context(order))
     return render(request, "shop/orders/detail.html", context)
+
+
+@login_required
+@require_POST
+def order_delivery_add(request, order_id):
+    """POST: record one hand-over visit, then return to the order page.
+
+    Deliberately a full round trip rather than an HTMX partial swap: the last
+    delivery can move the stage, which changes the stepper, the stage buttons,
+    the timeline, the progress bar and the board card all at once. One reload
+    refreshes every one of them; a partial response would have to name each
+    target and would go stale the next time the page gains a panel.
+    """
+    order = get_object_or_404(Order, id=order_id)
+
+    pairs, error = _delivery_lines_from_post(request, order)
+    if error:
+        messages.error(request, error)
+        return redirect("orders:detail", order_id=order.id)
+
+    raw_date = (request.POST.get("delivered_on") or "").strip()
+    if raw_date:
+        delivered_on = parse_date(raw_date)
+        if delivered_on is None:
+            messages.error(request, "That hand-over date is not a real date.")
+            return redirect("orders:detail", order_id=order.id)
+    else:
+        delivered_on = timezone.localdate()
+
+    try:
+        record_delivery(
+            order,
+            pairs,
+            delivered_on=delivered_on,
+            note=(request.POST.get("note") or "").strip(),
+            recorded_by=request.user,
+        )
+    except ValueError as e:
+        messages.error(request, str(e))
+        return redirect("orders:detail", order_id=order.id)
+
+    messages.success(request, "Delivery recorded.")
+    return redirect("orders:detail", order_id=order.id)
 
 
 @login_required
@@ -403,41 +941,84 @@ def order_advance_stage(request, order_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def order_edit(request, order_id):
-    """Edit order basic fields."""
+    """Edit order basic fields.
+
+    Same contract as order_create: a valid POST redirects to the order, an
+    invalid one answers 400 with everything you typed still on screen. Editing
+    is the more dangerous of the two to lose - the customer's details and
+    itemised lines were already there before you opened the page, and a
+    redirect used to replace them with the stored values instead of yours.
+    """
     order = get_object_or_404(Order, id=order_id)
 
     if request.method == "POST":
-        service_type = request.POST.get("service_type") or order.service_type
-        if service_type not in ServiceType.values:
-            messages.error(request, "Invalid service type.")
-            return redirect("orders:edit", order_id=order.id)
-        order.service_type = service_type
-        order.description = (request.POST.get("description") or "").strip()
-        total_raw = request.POST.get("total")
-        material_raw = request.POST.get("material_cost")
-        total, total_error = _parse_money(total_raw, "Total") if total_raw else (order.total, None)
-        material_cost, material_error = _parse_money(material_raw, "Material cost")
-        if total_error or material_error:
-            messages.error(request, total_error or material_error)
-            return redirect("orders:edit", order_id=order.id)
+        # Raw values as typed. The model is only written once every field has
+        # passed, so `order` below is never left half-updated by a failure.
+        form_values = {
+            "service_type": request.POST.get("service_type") or order.service_type,
+            "description": (request.POST.get("description") or "").strip(),
+            "total": request.POST.get("total"),
+            "material_cost": request.POST.get("material_cost"),
+            "promised_date": request.POST.get("promised_date"),
+            "notes": (request.POST.get("notes") or "").strip(),
+        }
+        field_errors = {}
+        if form_values["service_type"] not in ServiceType.values:
+            field_errors["service_type"] = "Invalid service type."
+        # Blank means "not agreed yet", not "keep whatever was there". The
+        # total is optional now, and an edit form that silently refused to
+        # clear a value would be the more surprising of the two readings.
+        # Material cost, just below, already behaves this way.
+        total, total_error = _parse_money(form_values["total"], "Total")
+        if total_error:
+            field_errors["total"] = total_error
+        material_cost, material_error = _parse_money(form_values["material_cost"], "Material cost")
+        if material_error:
+            field_errors["material_cost"] = material_error
+        promised_date, date_error = _parse_promised_date(form_values["promised_date"])
+        if date_error:
+            field_errors["promised_date"] = date_error
+        items, items_error = _items_from_post(request)
+        if items_error:
+            field_errors["item_rows"] = items_error
+
+        if field_errors:
+            return render(
+                request,
+                "shop/orders/edit.html",
+                _order_form_context(
+                    order=order,
+                    form_values=form_values,
+                    field_errors=field_errors,
+                    # Same reasoning as create: keep the rows as typed, so the
+                    # one rejected quantity does not take its siblings with it.
+                    item_rows=_raw_item_rows(request) or list(order.items.all()) + [None],
+                ),
+                status=400,
+            )
+
+        order.service_type = form_values["service_type"]
+        order.description = form_values["description"]
         order.total = total
         order.material_cost = material_cost
-        promised_date = request.POST.get("promised_date")
-        order.promised_date = promised_date if promised_date else None
-        order.notes = (request.POST.get("notes") or "").strip()
+        order.promised_date = promised_date
+        order.notes = form_values["notes"]
         try:
             order.save()
-        except ValidationError:
-            messages.error(request, "Invalid total, material cost, or date. Please check the values.")
-            return redirect("orders:edit", order_id=order.id)
+        except (ValidationError, ValueError, TypeError) as exc:
+            return render(
+                request,
+                "shop/orders/edit.html",
+                _order_form_context(
+                    order=order,
+                    form_values=form_values,
+                    field_errors={"form": "That order could not be saved: " + str(exc)},
+                    item_rows=_raw_item_rows(request) or list(order.items.all()) + [None],
+                ),
+                status=400,
+            )
+        _apply_items(order, items)
         messages.success(request, "Order updated.")
         return redirect("orders:detail", order_id=order.id)
 
-    return render(
-        request,
-        "shop/orders/edit.html",
-        {
-            "order": order,
-            "service_choices": ServiceType.choices,
-        },
-    )
+    return render(request, "shop/orders/edit.html", _order_form_context(order=order))

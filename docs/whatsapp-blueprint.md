@@ -4,8 +4,8 @@ Status: **BLUEPRINT ONLY — not built.** Build starts only after explicit
 sign-off (needs a WhatsApp sender account + per-message budget approval).
 
 Goal (from the client): when a customer hands over cloth, they get a
-WhatsApp message; on every stage change (cutting → stitching → … → ready
-→ delivered) they get another update; the long-term vision is a milestone
+WhatsApp message; on every stage change (measurement → stitching → ready →
+delivery) they get another update; the long-term vision is a milestone
 chart inside the message thread.
 
 ## 1. Where it hooks in (already prepared)
@@ -23,7 +23,7 @@ chart inside the message thread.
 ## 2. Message flow (full working design)
 
 ```
-Staff taps "Advance to Cutting"
+Staff taps "Advance to Stitching"
   → advance_stage() writes OrderStageHistory (existing)
   → emit_stage_changed(order, history)      (new, 3 lines)
       → creates NotificationOutbox row: PENDING (new table)
@@ -56,12 +56,15 @@ Variables: `{name}`, `{order_number}`, `{stage}`, `{promised_date}`,
 | Stage | Template (utility category) |
 |---|---|
 | Cloth received (order created) | `Hello {name}! 🦋 {shop_name} received your order {order_number} ({service}). Promised: {promised_date}. Track it live here: {track_link}` |
-| Cutting | `Update on {order_number}: ✂️ cutting done. Next: stitching. Track: {track_link}` |
 | Stitching | `Update on {order_number}: 🧵 stitching in progress. Track: {track_link}` |
-| Fitting | `Update on {order_number}: 👗 ready for trial/fitting. Please visit us at your convenience. Track: {track_link}` |
 | Ready | `Great news {name}! ✅ Order {order_number} is READY for delivery. Balance due: ₹{balance}. Track: {track_link}` |
-| Delivered | `Thank you {name}! 📦 Order {order_number} delivered. Loved our work? Reply with a rating ⭐⭐⭐⭐⭐` |
+| Delivery | `Thank you {name}! 📦 Order {order_number} delivered. Loved our work? Reply with a rating ⭐⭐⭐⭐⭐` |
 | Cancelled | `Update on {order_number}: this order was cancelled ({reason}). Call us at {shop_phone} with questions.` |
+
+There is deliberately **no message for a trial/fitting** — cutting and
+fitting were removed as separate stages in `orders/0002_simplify_stages`, so
+a stage change now only happens on measurement, stitching, ready and
+delivery. Reintroducing a trial message would mean reintroducing the stage.
 
 Rules:
 

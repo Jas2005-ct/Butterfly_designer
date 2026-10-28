@@ -33,9 +33,7 @@
                 <div class="text-right">
                     <div class="inline-block px-3 py-1 rounded-full text-sm font-medium
                         {% if order.stage == 'measurement' %}bg-blue-50 text-blue-700
-                        {% elif order.stage == 'cutting' %}bg-orange-50 text-orange-700
                         {% elif order.stage == 'stitching' %}bg-purple-50 text-purple-700
-                        {% elif order.stage == 'fitting' %}bg-teal-50 text-teal-700
                         {% elif order.stage == 'ready' %}bg-emerald-50 text-emerald-700
                         {% elif order.stage == 'delivered' %}bg-indigo-50 text-indigo-700
                         {% elif order.stage == 'cancelled' %}bg-red-50 text-red-700
@@ -73,9 +71,7 @@
                         {% elif m.completed %}border-emerald-500 bg-emerald-50
                         {% else %}border-slate-200 bg-slate-50{% endif %}">
                         {% if m.stage == "measurement" %}📏
-                        {% elif m.stage == "cutting" %}✂️
                         {% elif m.stage == "stitching" %}🧵
-                        {% elif m.stage == "fitting" %}👗
                         {% elif m.stage == "ready" %}✅
                         {% elif m.stage == "delivered" %}📦
                         {% elif m.stage == "cancelled" %}❌
@@ -102,6 +98,50 @@
                 {% endfor %}
             </div>
         </div>
+
+        <!-- What has been handed over so far -->
+        {# Behind a guard on line items: a saree alteration with no lines #}
+        {# would otherwise show the customer an empty "0/0" panel. #}
+        {% if order.total_quantity %}
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 shadow-sm">
+            <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+                <h3 class="font-bold">Handed over so far</h3>
+                <span class="text-sm font-medium text-indigo-700">
+                    📦 {{ order.delivered_quantity }}/{{ order.total_quantity }}
+                </span>
+            </div>
+            <div class="h-2 rounded-full bg-slate-100 overflow-hidden mb-4">
+                <div class="h-2 rounded-full bg-indigo-500"
+                     style="width: {{ order.delivery_percent }}%"></div>
+            </div>
+
+            <div class="space-y-2">
+                {% for delivery in order.deliveries.all %}
+                <div class="bg-slate-50 rounded-xl border border-slate-200 px-3 py-2.5">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-sm font-medium">{{ delivery.delivered_on|date:"d M Y" }}</span>
+                        <span class="text-xs font-bold text-indigo-700">
+                            📦 {{ delivery.total_quantity }} piece{{ delivery.total_quantity|pluralize }}
+                        </span>
+                    </div>
+                    <div class="text-xs text-slate-600 mt-1">
+                        {% for line in delivery.lines.all %}
+                        {{ line.quantity }}&times; {{ line.order_item.description }}{% if not forloop.last %}, {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                {% empty %}
+                <div class="text-center text-slate-400 text-sm py-2">Nothing handed over yet.</div>
+                {% endfor %}
+            </div>
+
+            {% if order.remaining_quantity > 0 %}
+            <p class="text-xs text-slate-500 mt-3">
+                {{ order.remaining_quantity }} piece{{ order.remaining_quantity|pluralize }} still to come.
+            </p>
+            {% endif %}
+        </div>
+        {% endif %}
 
         <!-- Details -->
         {% if order.description %}

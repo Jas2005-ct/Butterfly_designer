@@ -1,0 +1,105 @@
+{# The whole card is behind a guard on line items: an order that was never #}
+{# itemised has nothing to hand over in parts, so a progress bar reading 0/0 #}
+{# and a form with no rows would be pure noise. detail.html already hides the #}
+{# Items card the same way. #}
+{% if order.items.all %}
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 print:hidden">
+    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+        <h2 class="text-lg font-semibold">Deliveries</h2>
+        <span class="text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded-full">
+            📦 {{ order.delivered_quantity }}/{{ order.total_quantity }} delivered
+        </span>
+    </div>
+
+    {# The bar itself lives in the order header (see detail.html); this card #}
+    {# repeats only the sentence, so the page never shows two bars that #}
+    {# disagree about the same count. #}
+    <p class="text-xs text-slate-500 mb-4">
+        {% if order.remaining_quantity > 0 %}
+        {{ order.remaining_quantity }} of {{ order.total_quantity }} still to hand over
+        {% else %}
+        Everything has been handed over
+        {% endif %}
+    </p>
+
+    <div class="space-y-2 mb-4">
+        {% for delivery in order.deliveries.all %}
+        <div class="bg-slate-50 rounded-xl border border-slate-200 px-3 py-2.5">
+            <div class="flex items-center justify-between gap-2">
+                <span class="font-medium text-sm">{{ delivery.delivered_on|date:"d M Y" }}</span>
+                <span class="text-xs font-bold text-indigo-700">
+                    📦 {{ delivery.total_quantity }} piece{{ delivery.total_quantity|pluralize }}
+                </span>
+            </div>
+            <div class="text-xs text-slate-600 mt-1">
+                {% for line in delivery.lines.all %}
+                {{ line.quantity }}&times; {{ line.order_item.description }}{% if not forloop.last %}, {% endif %}
+                {% endfor %}
+            </div>
+            {% if delivery.note %}
+            <div class="text-xs text-slate-500 mt-1 italic">"{{ delivery.note }}"</div>
+            {% endif %}
+            <div class="text-[11px] text-slate-400 mt-1">
+                {% if delivery.recorded_by %}recorded by {{ delivery.recorded_by.username }}{% endif %}
+            </div>
+        </div>
+        {% empty %}
+        <div class="text-center text-slate-400 text-sm py-3">Nothing handed over yet.</div>
+        {% endfor %}
+    </div>
+
+    <form method="post" action="{% url 'orders:delivery_add' order.id %}"
+          class="border-t border-slate-200 pt-4">
+        {% csrf_token %}
+        <div class="text-sm font-medium text-slate-700 mb-1">Record a delivery</div>
+        <p class="text-xs text-slate-500 mb-3">
+            Fill in only what is going out today — anything left blank stays outstanding.
+        </p>
+
+        <div class="space-y-2 mb-3">
+            {% for item in order.items.all %}
+            <div class="flex items-center gap-3 bg-slate-50 rounded-xl border border-slate-200 px-3 py-2.5">
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium truncate">{{ item.description }}</div>
+                    {# Remaining rather than ordered: this is the figure staff #}
+                    {# actually need, and it is what makes an over-typed count #}
+                    {# obvious before the server refuses it. #}
+                    <div class="text-xs text-slate-500">
+                        {{ item.remaining_quantity }} of {{ item.quantity }} remaining
+                    </div>
+                </div>
+                <label class="text-[11px] text-slate-400" for="deliver-{{ item.id }}">count</label>
+                <input type="number" name="quantity" id="deliver-{{ item.id }}"
+                       min="0" step="1" value="" placeholder="0"
+                       inputmode="numeric"
+                       class="w-20 text-right px-2 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                {# Paired with the quantity above: the view zips these two #}
+                {# lists back together, so each row must emit exactly one of #}
+                {# each. #}
+                <input type="hidden" name="item_id" value="{{ item.id }}">
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-2 mb-3">
+            <div class="flex-1">
+                <label class="block text-xs text-slate-500 mb-1" for="delivered_on">Handed over on</label>
+                <input type="date" name="delivered_on" id="delivered_on"
+                       value="{% now "Y-m-d" %}"
+                       class="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+            </div>
+            <div class="flex-1">
+                <label class="block text-xs text-slate-500 mb-1" for="delivery-note">Note (optional)</label>
+                <input type="text" name="note" id="delivery-note" maxlength="200"
+                       placeholder="e.g. rest on Thursday"
+                       class="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+            </div>
+        </div>
+
+        <button type="submit"
+                class="w-full bg-slate-900 text-white font-bold px-6 py-3 rounded-xl hover:bg-indigo-600 transition-colors">
+            📦 Record delivery
+        </button>
+    </form>
+</div>
+{% endif %}

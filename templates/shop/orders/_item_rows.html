@@ -1,0 +1,168 @@
+{# Line-item editor, shared by the order create and edit forms. #}
+{# #}
+{# Expects `item_rows` (objects, or None for a blank row) and #}
+{# `material_choices`. Blank rows are skipped when the form is read back, so #}
+{# shipping one empty row makes the shape of the editor visible without staff #}
+{# having to press something first. #}
+{# #}
+{# `price` is the price of ONE unit - see orders.models.OrderItem. #}
+
+<div class="mb-4">
+    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+        <label class="block text-sm font-medium text-slate-700">Items</label>
+        <span class="text-xs text-slate-500">
+            Optional — qty × unit price is worked out for you.
+        </span>
+    </div>
+
+    <table class="w-full">
+        <thead>
+            <tr class="text-left text-xs text-slate-500 uppercase tracking-wide">
+                <th class="pb-2 pr-2 font-medium">Item</th>
+                <th class="pb-2 pr-2 w-20 font-medium">Qty</th>
+                <th class="pb-2 pr-2 w-28 font-medium">Unit ₹</th>
+                <th class="pb-2 pr-2 w-40 font-medium">Cloth</th>
+                <th class="pb-2 w-8"></th>
+            </tr>
+        </thead>
+        <tbody id="item-rows">
+            {% for row in item_rows %}
+            {% include "shop/orders/_item_row.html" with item=row %}
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- The running figure. Why it exists: price is per unit, so the number
+         staff actually care about (the order's) was never on screen - it was
+         being done in the head and then typed into Total, where the two could
+         silently disagree. -->
+    <div id="items-subtotal" class="hidden mt-2 flex items-baseline justify-between gap-2">
+        <span class="text-xs text-slate-500">Items add up to</span>
+        <span class="text-sm font-semibold text-slate-800" id="items-subtotal-amount">0.00</span>
+    </div>
+
+    <button type="button" id="add-item-row"
+            class="mt-2 text-sm font-semibold text-indigo-600 hover:text-indigo-800">
+        + Add another item
+    </button>
+</div>
+
+{# Cloned by the script below, so it must stay a plain blank row. #}
+<template id="item-row-template">
+    {% include "shop/orders/_item_row.html" with item=None %}
+</template>
+
+<script>
+    (function () {
+        var tbody = document.getElementById("item-rows");
+        var template = document.getElementById("item-row-template");
+        var addButton = document.getElementById("add-item-row");
+        if (!tbody || !template || !addButton) return;
+
+        addButton.addEventListener("click", function () {
+            tbody.appendChild(template.content.cloneNode(true));
+            var added = tbody.lastElementChild;
+            var firstField = added && added.querySelector("input[name=item_description]");
+            if (firstField) firstField.focus();
+            recalculate();
+        });
+
+        // One delegated listener instead of one per row: rows are added and
+        // removed after this script runs, and re-binding would be easy to
+        // forget.
+        tbody.addEventListener("click", function (event) {
+            var button = event.target.closest(".remove-item");
+            if (!button) return;
+            var row = button.closest(".item-row");
+            if (row) row.remove();
+            recalculate();
+        });
+
+        function fieldValue(row, name) {
+            var input = row.querySelector("input[name=" + name + "]");
+            return input ? input.value : "";
+        }
+
+        // Mirrors orders.services/_items_from_post exactly, because a subtotal
+        // that disagrees with what gets saved is worse than no subtotal at all.
+        // A row with no description is dropped server-side, so it counts zero
+        // here too; a blank quantity means one; an unparseable price is zero.
+        function lineTotal(row) {
+            if (!fieldValue(row, "item_description").trim()) return 0;
+            var quantity = parseFloat(fieldValue(row, "item_quantity"));
+            var price = parseFloat(fieldValue(row, "item_price"));
+            if (isNaN(quantity) || quantity < 1) quantity = 1;
+            if (isNaN(price) || price < 0) price = 0;
+            return quantity * price;
+        }
+
+        // toFixed(2) rather than locale grouping: the server prints money with
+        // floatformat:2, so the two must read identically or staff will trust
+        // one and doubt the other.
+        function money(value) {
+            return value.toFixed(2);
+        }
+
+        // Whether this editor may fill boxes in on its own. False on the edit
+        // form, where an empty Total means "not agreed yet" rather than
+        // "work it out for me": filling it from the lines would invent a price
+        // for an order the shop deliberately left open - the exact thing the
+        // optional total was introduced to allow. Same reasoning for
+        // Description - opening a form must never change what it saves.
+        var autoFill = {% if order %}false{% else %}true{% endif %};
+
+        function recalculate() {
+            var subtotal = 0;
+            Array.prototype.forEach.call(tbody.querySelectorAll(".item-row"), function (row) {
+                var amount = lineTotal(row);
+                subtotal += amount;
+                var cell = row.querySelector("[data-line-total]");
+                if (cell) cell.textContent = amount > 0 ? money(amount) : "";
+            });
+
+            var subtotalBox = document.getElementById("items-subtotal");
+            var subtotalAmount = document.getElementById("items-subtotal-amount");
+            if (subtotalBox && subtotalAmount) {
+                subtotalAmount.textContent = money(subtotal);
+                subtotalBox.classList.toggle("hidden", subtotal <= 0);
+            }
+
+            if (!autoFill) return;
+
+            // Pre-fill Total only while the box is empty. Never while it holds
+            // something: it may be a price agreed with a customer, and
+            // overwriting it to match the lines would be a far worse surprise
+            // than the two disagreeing. Clear the box to hand it back.
+            var total = document.getElementById("total");
+            if (total && subtotal > 0 && !total.value.trim()) {
+                total.value = money(subtotal);
+            }
+            mirrorDescription();
+        }
+
+        // Description follows the first item while it is blank, so the two
+        // never have to be typed separately. Same rule as Total: it fills only
+        // into an empty box, so anything already written there is left alone.
+        function mirrorDescription() {
+            var description = document.getElementById("description");
+            if (!description || description.value.trim()) return;
+            var firstRow = tbody.querySelector(".item-row");
+            var source = firstRow ? fieldValue(firstRow, "item_description").trim() : "";
+            if (source) description.value = source;
+        }
+
+        tbody.addEventListener("input", recalculate);
+
+        // Values already on the page - the edit form's stored fields, or a
+        // rejected POST that redisplayed staff's own input - are reconciled
+        // before this returns. Deferred to DOMContentLoaded because this
+        // script is included above #total and #description in both forms, so
+        // at this instant getElementById would return null and the first pass
+        // would silently skip the very boxes it exists to fill.
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", recalculate);
+        } else {
+            recalculate();
+        }
+    })();
+</script>

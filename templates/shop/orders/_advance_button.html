@@ -1,14 +1,25 @@
 {% comment %}
 One-tap forward advance, shared by board cards and list rows.
-Expects: order (with card_next / card_next_label set), prefix
-("order-card" or "order-row") matching the wrapper element id, so the
-HTMX outerHTML swap removes exactly this card/row on success.
+Expects: order (with card_next / card_next_label set), plus the board view
+state (tab / view_mode / query / show_all) so the re-rendered board keeps the
+staff member's current tab, mode and search filter.
 No stage is submitted: the server always moves to the single valid
 forward-next stage (tamper-proof by design).
+
+Why #board-content and innerHTML: the endpoint re-renders the whole board
+fragment rather than returning an empty body. Targeting the card and swapping
+outerHTML with an empty response used to *delete* the card and leave every
+column count, badge and ordering rule stale until a manual page reload.
+One round trip now moves the card and corrects counts, sorting and tab totals
+together.
 {% endcomment %}
 {% if order.card_next %}
-<form hx-post="{% url 'orders:card_advance' order.id %}" hx-target="#{{ prefix }}-{{ order.id }}" hx-swap="outerHTML">
+<form hx-post="{% url 'orders:card_advance' order.id %}" hx-target="#board-content" hx-swap="innerHTML">
     {% csrf_token %}
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="hidden" name="view" value="{{ view_mode }}">
+    <input type="hidden" name="q" value="{{ query }}">
+    {% if show_all %}<input type="hidden" name="show" value="all">{% endif %}
     <button type="submit" title="Advance to {{ order.card_next_label }}"
             class="w-full px-3 py-2.5 rounded-xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800 text-sm whitespace-nowrap transition-colors">
         → {{ order.card_next_label }}
