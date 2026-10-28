@@ -515,7 +515,11 @@ class BoardVolumeTests(TestCase):
             },
         )
         order = Order.objects.get(order_number__startswith="BD-")
-        self.assertRedirects(response, reverse("orders:detail", args=[order.id]))
+        # The fragment is deliberate: a new order lands on the payments panel,
+        # because taking the advance is the next thing that happens.
+        self.assertRedirects(
+            response, reverse("orders:detail", args=[order.id]) + "#order-payments"
+        )
         self.assertEqual(order.customer.name, "New Customer")
 
     def test_create_order_with_existing_customer(self):
@@ -528,7 +532,9 @@ class BoardVolumeTests(TestCase):
             },
         )
         order = Order.objects.get(order_number__startswith="BD-")
-        self.assertRedirects(response, reverse("orders:detail", args=[order.id]))
+        self.assertRedirects(
+            response, reverse("orders:detail", args=[order.id]) + "#order-payments"
+        )
         self.assertEqual(order.customer, self.customer)
 
     def test_stage_advance_htmx(self):
@@ -1535,3 +1541,100 @@ class OrderFormKeepsTypedValuesTests(TestCase):
         self.assertContains(response, 'value="5000.00"')
         self.assertContains(response, "Stored wording")
         self.assertContains(response, 'value="2026-11-01"')
+
+
+class OrderFormConversationOrderTests(TestCase):
+    """Phase B and C: the form should read like the counter conversation, and
+    money should print as money.
+
+    These pin ordering and formatting rather than data safety, but both were
+    reported as the form "not being the best UX" - a staff member should be
+    able to take an order top to bottom without deciding which of two boxes
+    holds the same words, and should never see ₹1234.5.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="mgr", password="secret123")
+        self.client.login(username="mgr", password="secret123")
+        self.customer = Customer.objects.create(name="Priya", phone="9876543210")
+
+    def test_create_shows_one_blank_item_row(self):
+        """Two blank rows made an empty form look half-filled, and the hint
+        beside them already said blank rows are for un-itemised jobs."""
+        html = self.client.get(reverse("orders:create")).content.decode()
+        # Split on the tbody: the <template> holds one more rendered row, which
+        # is never visible and must not be counted as one staff can type into.
+        visible = html.split('<tbody id="item-rows">', 1)[1].split("</tbody>", 1)[0]
+        self.assertEqual(visible.count('class="item-row'), 1)
+
+    def test_the_job_details_sit_behind_more(self):
+        """Description, the shop's own material spend and notes are details of
+        the job rather than decisions being taken at the counter, so they must
+        not be in the first pass - and they must still be reachable."""
+        html = self.client.get(reverse("orders:create")).content.decode()
+        self.assertIn("More (optional)", html)
+        before_more, more = html.split("<details", 1)[0], html.split("<details", 1)[1]
+        for field in ("description", "material_cost", "notes"):
+            self.assertIn('name="' + field + '"', more, field + " is not in More")
+            self.assertNotIn(
+                'name="' + field + '"', before_more, field + " is still in the first pass"
+            )
+
+    def test_the_form_reads_work_then_quantity_then_when_then_how_much(self):
+        """The order the customer answers in: what are we making, how many,
+        when do you need it, how much. Not the order the columns happen to
+        sit in on the model."""
+        html = self.client.get(reverse("orders:create")).content.decode()
+        work = html.index("Service Type")
+        how_many = html.index('id="item-rows"')
+        when = html.index('id="promised_date"')
+        how_much = html.index('id="total"')
+        self.assertLess(work, how_many)
+        self.assertLess(how_many, when)
+        self.assertLess(when, how_much)
+
+    def test_new_orders_land_on_the_payments_panel(self):
+        """Taking the advance is the next thing that happens after Create, so
+        the redirect targets the panel instead of making staff hunt for it."""
+        detail = self.client.get(
+            reverse("orders:detail", args=[Order.objects.create(customer=self.customer).id])
+        )
+        self.assertContains(detail, 'id="order-payments"')
+
+    def material_cost_text(self, response):
+        """The contents of the Material Cost cell on the order header.
+
+        Why not a plain assertContains: that row of cards also holds Promised
+        (which prints "—" when unset) and the payments panel (which prints
+        "₹0.00" whenever nothing has been paid). Asserting on the whole page
+        would let both of these tests pass for entirely the wrong reason.
+        """
+        html = response.content.decode()
+        after = html.split("Material Cost", 1)[1]
+        # The label carries its own closing tag, so skip past that first one
+        # and stop at the end of the value cell.
+        return after.split("</div>", 1)[1].split("</div>", 1)[0]
+
+    def test_material_cost_prints_as_money(self):
+        """₹1234.5 sat next to ₹1500.00 in the same row of cards - one of the
+        two looked like a typo."""
+        order = Order.objects.create(customer=self.customer, material_cost=Decimal("1234.5"))
+        response = self.client.get(reverse("orders:detail", args=[order.id]))
+        self.assertIn("₹1234.50", self.material_cost_text(response))
+
+    def test_material_cost_zero_is_not_the_same_as_unset(self):
+        """Decimal("0") is falsy, so `|default:"—"` printed an em dash for a
+        genuine zero - the exact unset-vs-free confusion the optional total
+        already had to be fixed for."""
+        unset = Order.objects.create(customer=self.customer)
+        cell = self.material_cost_text(
+            self.client.get(reverse("orders:detail", args=[unset.id]))
+        )
+        self.assertIn("—", cell)
+        self.assertNotIn("₹", cell)
+
+        zero = Order.objects.create(customer=self.customer, material_cost=Decimal("0"))
+        cell = self.material_cost_text(
+            self.client.get(reverse("orders:detail", args=[zero.id]))
+        )
+        self.assertIn("₹0.00", cell)

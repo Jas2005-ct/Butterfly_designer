@@ -110,11 +110,11 @@
                 </div>
             </div>
 
-            <div class="mb-4">
-                <label for="description" class="block text-sm font-medium text-slate-700 mb-1">Description</label>
-                <textarea name="description" id="description" rows="3" placeholder="Blouse with lining, princess cut…"
-                          class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">{{ form_values.description }}</textarea>
-            </div>
+            {# Field order follows the counter conversation, not the table: #}
+            {# what work -> how many -> when do you need it -> how much. #}
+            {# Description, the shop's own material spend and notes are #}
+            {# details of the job rather than decisions being taken here, so #}
+            {# they sit behind More and out of the way of a rushed first pass. #}
 
             {% if field_errors.item_rows %}
             <div class="mb-3 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
@@ -124,46 +124,62 @@
 
             {% include "shop/orders/_item_rows.html" %}
 
-            <div class="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                    <label for="total" class="block text-sm font-medium text-slate-700 mb-1">Total (₹)</label>
-                    <input type="number" name="total" id="total" step="0.01" min="0"
-                           value="{{ form_values.total }}"
-                           placeholder="Not agreed yet"
-                           class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
-                    <p class="text-xs text-slate-500 mt-1">Optional — fill it in once the price is agreed.</p>
-                    {% if field_errors.total %}
-                    <p class="text-xs text-red-600 mt-1">{{ field_errors.total }}</p>
-                    {% endif %}
-                </div>
-                <div>
-                    <label for="material_cost" class="block text-sm font-medium text-slate-700 mb-1">Material (₹)</label>
-                    <input type="number" name="material_cost" id="material_cost" step="0.01" min="0"
-                           value="{{ form_values.material_cost }}"
-                           class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
-                    {% if field_errors.material_cost %}
-                    <p class="text-xs text-red-600 mt-1">{{ field_errors.material_cost }}</p>
-                    {% endif %}
-                </div>
+            <div class="mb-4">
+                <label for="promised_date" class="block text-sm font-medium text-slate-700 mb-1">Promised date</label>
+                <input type="date" name="promised_date" id="promised_date"
+                       value="{{ form_values.promised_date }}"
+                       class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                {% if field_errors.promised_date %}
+                <p class="text-xs text-red-600 mt-1">{{ field_errors.promised_date }}</p>
+                {% endif %}
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
-                <div>
-                    <label for="promised_date" class="block text-sm font-medium text-slate-700 mb-1">Promised date</label>
-                    <input type="date" name="promised_date" id="promised_date"
-                           value="{{ form_values.promised_date }}"
-                           class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
-                    {% if field_errors.promised_date %}
-                    <p class="text-xs text-red-600 mt-1">{{ field_errors.promised_date }}</p>
-                    {% endif %}
-                </div>
-                <div>
-                    <label for="notes" class="block text-sm font-medium text-slate-700 mb-1">Internal notes</label>
-                    <input type="text" name="notes" id="notes"
-                           value="{{ form_values.notes }}"
-                           class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
-                </div>
+            <div class="mb-4">
+                <label for="total" class="block text-sm font-medium text-slate-700 mb-1">Total (₹)</label>
+                <input type="number" name="total" id="total" step="0.01" min="0"
+                       value="{{ form_values.total }}"
+                       placeholder="Not agreed yet"
+                       class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                <p class="text-xs text-slate-500 mt-1">Optional — fill it in once the price is agreed. Cleared or empty, the items above are used.</p>
+                {% if field_errors.total %}
+                <p class="text-xs text-red-600 mt-1">{{ field_errors.total }}</p>
+                {% endif %}
             </div>
+
+            <details class="mb-5 border-t border-slate-200 pt-3"
+                     {% if field_errors.material_cost %}open{% endif %}>
+                <summary class="cursor-pointer text-sm font-medium text-slate-600 hover:text-slate-800 py-1">
+                    More (optional)
+                </summary>
+                <div class="mt-3 space-y-4">
+                    <div>
+                        <label for="description" class="block text-sm font-medium text-slate-700 mb-1">Description</label>
+                        <textarea name="description" id="description" rows="3" placeholder="Blouse with lining, princess cut…"
+                                  class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">{{ form_values.description }}</textarea>
+                        <p class="text-xs text-slate-500 mt-1">Fills itself in from the first item — overwrite it if the order needs its own wording.</p>
+                    </div>
+                    <div>
+                        <label for="material_cost" class="block text-sm font-medium text-slate-700 mb-1">Shop's material cost (₹)</label>
+                        <input type="number" name="material_cost" id="material_cost" step="0.01" min="0"
+                               value="{{ form_values.material_cost }}"
+                               class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                        {# Why the wording: the Cloth column above asks who #}
+                        {# supplied the cloth. This asks what the shop spent. #}
+                        {# Same word, opposite directions of money, and staff #}
+                        {# were having to guess which was which. #}
+                        <p class="text-xs text-slate-500 mt-1">What the shop spent on cloth — not what the customer owes. Skip it if the customer brought their own.</p>
+                        {% if field_errors.material_cost %}
+                        <p class="text-xs text-red-600 mt-1">{{ field_errors.material_cost }}</p>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <label for="notes" class="block text-sm font-medium text-slate-700 mb-1">Internal notes</label>
+                        <input type="text" name="notes" id="notes"
+                               value="{{ form_values.notes }}"
+                               class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                    </div>
+                </div>
+            </details>
 
             {% if field_errors.form %}
             <div class="mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
