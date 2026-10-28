@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.db.models import Count, Prefetch, Q
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_http_methods, require_POST
@@ -180,7 +181,10 @@ def _order_form_context(
                 "notes": order.notes or "",
             }
     if item_rows is None:
-        item_rows = [None, None] if order is None else list(order.items.all()) + [None]
+        # One blank row, not two: a fresh form should read as empty, and the
+        # second row only ever existed to show that rows can be added - which
+        # the "+ Add another item" button below it already says.
+        item_rows = [None] if order is None else list(order.items.all()) + [None]
     context = {
         "order": order,
         "service_choices": ServiceType.choices,
@@ -764,7 +768,7 @@ def order_create(request):
                     selected_customer=selected_customer,
                     # The raw rows, not the parsed ones: when a quantity is
                     # rejected, the other four rows are still worth keeping.
-                    item_rows=_raw_item_rows(request) or [None, None],
+                    item_rows=_raw_item_rows(request) or [None],
                 ),
                 status=400,
             )
@@ -809,12 +813,16 @@ def order_create(request):
                     form_values=form_values,
                     field_errors={"form": "That order could not be saved: " + str(exc)},
                     selected_customer=selected_customer,
-                    item_rows=_raw_item_rows(request) or [None, None],
+                    item_rows=_raw_item_rows(request) or [None],
                 ),
                 status=400,
             )
         messages.success(request, f"Order {order.order_number} created.")
-        return redirect("orders:detail", order_id=order.id)
+        # Land on the payments panel. With the total optional and advances a
+        # first-class payment now, taking the money is the very next thing
+        # that happens at the counter - and a browser scrolls to the fragment
+        # on its own, so it costs no JS and no extra state.
+        return redirect(reverse("orders:detail", args=[order.id]) + "#order-payments")
 
     # GET: show form; an existing customer can be preselected via ?customer=<id>.
     selected_customer = None

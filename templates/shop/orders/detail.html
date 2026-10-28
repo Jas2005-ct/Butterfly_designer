@@ -44,7 +44,13 @@
         </div>
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Material Cost</div>
-            <div class="font-medium">{{ order.material_cost|default:"—" }}</div>
+            {# `is not None` rather than the default filter: Decimal("0") is #}
+            {# falsy, so `|default:"—"` showed an em dash for a genuine zero #}
+            {# - which is exactly the "unset vs free" confusion the optional #}
+            {# total already had to fix. #}
+            <div class="font-medium">
+                {% if order.material_cost is not None %}₹{{ order.material_cost|floatformat:2 }}{% else %}—{% endif %}
+            </div>
         </div>
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Promised</div>
