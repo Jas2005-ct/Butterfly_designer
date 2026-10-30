@@ -82,8 +82,8 @@
                     </div>
                 </div>
                 <label class="text-[11px] text-slate-400" for="deliver-{{ row.item.id }}">count</label>
-                <input type="number" name="quantity" id="deliver-{{ row.item.id }}"
-                       min="0" step="1" value="{{ row.typed }}" placeholder="0"
+                <input type="text" name="quantity" id="deliver-{{ row.item.id }}"
+                       value="{{ row.typed }}" placeholder="0"
                        inputmode="numeric"
                        class="w-20 text-right px-2 py-1.5 rounded-lg border {% if delivery_errors.form %}border-red-300 {% endif %}bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
                 {# Paired with the quantity above: the view zips these two #}

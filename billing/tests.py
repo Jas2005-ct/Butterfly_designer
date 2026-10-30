@@ -143,6 +143,25 @@ class PaymentViewTests(TestCase):
         self.assertContains(response, 'checked', status_code=400)
         self.assertFalse(Payment.objects.exists())
 
+    def test_the_typed_echo_survives_the_browser(self):
+        """The bad amount must be visible, not merely present in the HTML.
+
+        A number widget blanks a non-numeric value at render time, so the
+        panel could carry "abc" and still show an empty box - the same
+        browser behaviour the order and customer forms were converted for.
+        The widget is a text input with a numeric keyboard now (the form's
+        min_value remains the only validator), so the typed value and the
+        message explaining the refusal are on screen together.
+        """
+        response = self.client.post(
+            self.url(),
+            {"amount": "abc", "mode": "cash"},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, 'type="text" name="amount"', status_code=400)
+        self.assertContains(response, 'value="abc"', status_code=400)
+
     def test_add_zero_returns_400(self):
         response = self.client.post(
             self.url(),

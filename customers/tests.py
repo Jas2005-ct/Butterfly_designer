@@ -143,6 +143,24 @@ class CustomerMeasurementTests(TestCase):
         self.assertContains(response, 'value="34"', status_code=400)
         self.assertContains(response, "twenty", status_code=400)
 
+    def test_the_typed_echo_survives_the_browser(self):
+        """The echo must be visible, not merely present in the HTML.
+
+        A number widget sanitizes a non-numeric value into an empty box
+        before it is drawn, so the refusal page could carry "twenty" and
+        still LOOK blank in a real browser - silently undoing the whole
+        keep-what-was-typed contract for the most common typo class. Text
+        plus inputmode shows what was typed and keeps the numeric
+        keyboard; the 0-100 range rules belong to the view alone.
+        """
+        response = self.client.post(
+            reverse("customers:create"),
+            {"name": "Priya", "phone": "9876543210", "waist": "twenty"},
+        )
+        self.assertContains(response, 'type="text" name="waist"', status_code=400)
+        self.assertContains(response, 'value="twenty"', status_code=400)
+        self.assertNotIn('type="number"', response.content.decode())
+
     def test_a_refused_customer_keeps_the_typed_name_and_phone(self):
         """The identity boxes used to render empty on any refusal, because
         the view passed `form` over and the template ignored it."""

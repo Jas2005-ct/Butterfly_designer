@@ -12,11 +12,11 @@
                class="w-full px-2 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
     </td>
     <td class="py-1 pr-2">
-        <input type="number" name="item_quantity" min="1" step="1" value="{{ item.quantity|default:1 }}"
+        <input type="text" name="item_quantity" inputmode="numeric" value="{{ item.quantity|default:1 }}"
                class="w-full px-2 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
     </td>
     <td class="py-1 pr-2">
-        <input type="number" name="item_price" min="0" step="0.01" value="{{ item.price|default:'' }}"
+        <input type="text" name="item_price" inputmode="decimal" value="{{ item.price|default:'' }}"
                placeholder="—"
                class="w-full px-2 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
     </td>

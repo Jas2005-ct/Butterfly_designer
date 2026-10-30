@@ -1389,6 +1389,19 @@ class PartialDeliveryTests(TestCase):
         response = self.post_delivery(quantity=[""], note="rest on Thursday")
         self.assertDeliveryRejected(response, 'value="rest on Thursday"')
 
+    def test_the_typed_echo_survives_the_browser(self):
+        """The refused count must be visible, not merely present in the HTML.
+
+        A number widget sanitizes a non-numeric value into an empty box at
+        render time: the page could carry "two" and still show an empty box
+        where it was typed. Text + inputmode keeps the numeric keyboard on
+        tablets, shows exactly what was typed, and leaves validation with
+        the server, which is the only validator that ever really ran.
+        """
+        response = self.post_delivery(quantity=["two"])
+        self.assertDeliveryRejected(response, 'type="text" name="quantity"')
+        self.assertDeliveryRejected(response, 'value="two"')
+
     def test_a_blank_date_defaults_to_today(self):
         response = self.post_delivery(delivered_on="")
         self.assertContains(response, "Delivery recorded.")
