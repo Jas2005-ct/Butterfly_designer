@@ -56,13 +56,7 @@
             Fill in only what is going out today — anything left blank stays outstanding.
         </p>
 
-        {# A refused delivery re-renders this page at 400 with everything as
-             typed, via delivery_errors / delivery_rows / delivery_form_values.
-             GET supplies none of them (detail view), so every reference falls
-             through to its normal default. That is why these are plain
-             if-tests in the template rather than filters with a stored-value
-             fallback: the filter flavour was the code that snapped a cleared
-             field back to its old text in the order form. #}
+        {# A refused delivery re-renders this page at 400 with everything as typed (delivery_errors / delivery_rows / delivery_form_values), so these are plain if-tests, not filters with a stored-value fallback - a filter was what snapped cleared input back in the order form. #}
         {% if delivery_errors.form %}
         <div class="mb-3 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
             {{ delivery_errors.form }}

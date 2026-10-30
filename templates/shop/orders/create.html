@@ -135,14 +135,7 @@
             </div>
 
             <div class="mb-4">
-                {# The one money hint. It is computed live from the item rows
-                     above by the editor's script and lives here - beside the
-                     box staff actually type into - rather than under the table,
-                     because a figure nobody can act on from where they are
-                     standing is decoration. On create Total picks the hint up
-                     while left blank (the editor script's job, create only); on
-                     edit it is read-only, because an empty Total means "not
-                     agreed yet". #}
+                {# The one money hint: computed live by the item editor's script, living beside the box it informs (a figure nobody can act on from where they stand is decoration). Create fills a blank Total from it; on edit it is read-only - empty means "not agreed yet". #}
                 <div id="items-total-hint" aria-live="polite" class="hidden mb-2 text-sm text-slate-600">
                     Items add up to <span class="font-semibold tabular-nums" id="items-total-amount">₹0.00</span>
                     {% if not order %} — Total picks this up while left blank.{% endif %}

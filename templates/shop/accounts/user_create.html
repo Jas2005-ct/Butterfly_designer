@@ -18,8 +18,7 @@
             {{ error }}
         </div>
         {% endif %}
-        {# `form` is only present on a refused POST; the password field is
-             deliberately left without a value - never echo one back. #}
+        {# `form` is present only on a refused POST; the password is never echoed back. #}
         <input type="text" name="username" id="username" value="{{ form.username }}" required
                class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
     </div>

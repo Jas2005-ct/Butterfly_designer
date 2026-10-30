@@ -19,11 +19,7 @@
 
     <div>
         <label for="name" class="block text-sm font-medium text-slate-700 mb-1">Name *</label>
-        {# On a refused POST (the only time `form` exists) staff's typed name
-             must win, or an edit made alongside a bad measurement would be
-             silently replaced by the stored copy - the edit form's own copy
-             of the data-loss bug. No default filter: a cleared box must come
-             back cleared. #}
+        {# On a refused POST (the only time `form` exists) the typed values win over the stored copy, and no default filter ever snaps a cleared box back. #}
         <input type="text" name="name" id="name" value="{% if form %}{{ form.name }}{% else %}{{ customer.name }}{% endif %}" required
                class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
     </div>

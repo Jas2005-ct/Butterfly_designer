@@ -124,6 +124,13 @@ class UserManagementTests(TestCase):
         self.assertTrue(user.check_password("pass1234"))
         self.assertEqual(user.profile.role, Role.MANAGER)
 
+    def test_the_create_page_has_no_template_comment_leak(self):
+        """A {# #} comment spanning lines prints as literal page text - this
+        page's echo note once did. Single-line comments only."""
+        response = self.client.get(reverse("accounts:user_create"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("{#", response.content.decode())
+
     def test_create_duplicate_username_rejected(self):
         response = self.client.post(
             reverse("accounts:user_create"),

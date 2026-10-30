@@ -20,9 +20,7 @@
         In inches. Every field is optional — leave blank whatever wasn't measured.
     </p>
 
-    {# Set by a refused POST; absent on GET. Beside the grid, not a flash
-         message, because the error names a box inside this card and the
-         card is exactly where the fix has to happen. #}
+    {# Set by a refused POST, absent on GET; inline because it names a box inside this card. #}
     {% if measurement_error %}
     <div class="mb-3 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
         {{ measurement_error }}

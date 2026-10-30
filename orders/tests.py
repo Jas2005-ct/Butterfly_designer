@@ -1700,6 +1700,19 @@ class OrderFormConversationOrderTests(TestCase):
         html = self.client.get(reverse("orders:create")).content.decode()
         self.assertNotIn("Fills itself in", html)
 
+    def test_template_comments_never_leak_into_the_page(self):
+        """Django strips {# ... #} only when it closes on the same line; one
+        running across lines gains literal-page status and once printed a
+        paragraph of template prose between Promised date and Total. Pins
+        every comment on these pages to single-line form."""
+        create = self.client.get(reverse("orders:create")).content.decode()
+        self.assertNotIn("{#", create)
+        order = Order.objects.create(customer=self.customer)
+        edit = self.client.get(reverse("orders:edit", args=[order.id])).content.decode()
+        self.assertNotIn("{#", edit)
+        detail = self.client.get(reverse("orders:detail", args=[order.id])).content.decode()
+        self.assertNotIn("{#", detail)
+
     def test_new_orders_land_on_the_payments_panel(self):
         """Taking the advance is the next thing that happens after Create, so
         the redirect targets the panel instead of making staff hunt for it."""

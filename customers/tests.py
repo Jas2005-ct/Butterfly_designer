@@ -161,6 +161,17 @@ class CustomerMeasurementTests(TestCase):
         self.assertContains(response, 'value="twenty"', status_code=400)
         self.assertNotIn('type="number"', response.content.decode())
 
+    def test_template_comments_never_leak_into_the_page(self):
+        """A comment that runs across lines prints as literal page text -
+        Django strips a {# #} comment only when it closes on the same line.
+        Covers the create form, the shared measurement card and the edit
+        form, all of which carry single-line echo notes now."""
+        create = self.client.get(reverse("customers:create")).content.decode()
+        self.assertNotIn("{#", create)
+        customer = Customer.objects.create(name="Priya", phone="9876543210")
+        edit = self.client.get(reverse("customers:edit", args=[customer.id])).content.decode()
+        self.assertNotIn("{#", edit)
+
     def test_a_refused_customer_keeps_the_typed_name_and_phone(self):
         """The identity boxes used to render empty on any refusal, because
         the view passed `form` over and the template ignored it."""
