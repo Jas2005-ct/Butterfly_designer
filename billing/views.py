@@ -78,21 +78,33 @@ def order_payment_add(request, order_id):
     """
     order = get_object_or_404(Order, id=order_id)
     form = PaymentForm(request.POST, order=order)
-    if not form.is_valid():
+
+    def rejected(message):
+        """Re-render the panel at 400 with the payment as it was typed.
+
+        One body instead of three, so the bind-the-form rule is structural
+        rather than remembered per rejection site: the form-level errors,
+        a hand-built POST naming another order's delivery, and the service
+        layer's ValueError (unreachable from browser traffic - the Form
+        co-validates kind/delivery - but the choke point guards callers
+        that skip the Form) all re-render the same bound form. A fresh
+        PaymentForm here would blank the panel on the very POST that
+        finally told staff the amount was wrong.
+        """
         context = payment_section_context(order)
         context["payment_form"] = form
-        context["error"] = "Please fix the highlighted fields."
+        context["error"] = message
         return render(request, "shop/billing/_payments.html", context, status=400)
+
+    if not form.is_valid():
+        return rejected("Please fix the highlighted fields.")
 
     delivery = None
     delivery_id = form.cleaned_data.get("delivery")
     if delivery_id:
         delivery = order.deliveries.filter(id=delivery_id).first()
         if delivery is None:
-            context = payment_section_context(order)
-            context["payment_form"] = form
-            context["error"] = "That delivery does not belong to this order."
-            return render(request, "shop/billing/_payments.html", context, status=400)
+            return rejected("That delivery does not belong to this order.")
 
     try:
         record_payment(
@@ -105,9 +117,7 @@ def order_payment_add(request, order_id):
             delivery=delivery,
         )
     except ValueError as e:
-        context = payment_section_context(order)
-        context["error"] = str(e)
-        return render(request, "shop/billing/_payments.html", context, status=400)
+        return rejected(str(e))
 
     order.refresh_from_db()
     context = payment_section_context(order)

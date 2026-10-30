@@ -56,27 +56,40 @@
             Fill in only what is going out today — anything left blank stays outstanding.
         </p>
 
+        {# A refused delivery re-renders this page at 400 with everything as
+             typed, via delivery_errors / delivery_rows / delivery_form_values.
+             GET supplies none of them (detail view), so every reference falls
+             through to its normal default. That is why these are plain
+             if-tests in the template rather than filters with a stored-value
+             fallback: the filter flavour was the code that snapped a cleared
+             field back to its old text in the order form. #}
+        {% if delivery_errors.form %}
+        <div class="mb-3 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+            {{ delivery_errors.form }}
+        </div>
+        {% endif %}
+
         <div class="space-y-2 mb-3">
-            {% for item in order.items.all %}
+            {% for row in delivery_rows %}
             <div class="flex items-center gap-3 bg-slate-50 rounded-xl border border-slate-200 px-3 py-2.5">
                 <div class="flex-1 min-w-0">
-                    <div class="text-sm font-medium truncate">{{ item.description }}</div>
+                    <div class="text-sm font-medium truncate">{{ row.item.description }}</div>
                     {# Remaining rather than ordered: this is the figure staff #}
                     {# actually need, and it is what makes an over-typed count #}
                     {# obvious before the server refuses it. #}
                     <div class="text-xs text-slate-500">
-                        {{ item.remaining_quantity }} of {{ item.quantity }} remaining
+                        {{ row.item.remaining_quantity }} of {{ row.item.quantity }} remaining
                     </div>
                 </div>
-                <label class="text-[11px] text-slate-400" for="deliver-{{ item.id }}">count</label>
-                <input type="number" name="quantity" id="deliver-{{ item.id }}"
-                       min="0" step="1" value="" placeholder="0"
+                <label class="text-[11px] text-slate-400" for="deliver-{{ row.item.id }}">count</label>
+                <input type="number" name="quantity" id="deliver-{{ row.item.id }}"
+                       min="0" step="1" value="{{ row.typed }}" placeholder="0"
                        inputmode="numeric"
-                       class="w-20 text-right px-2 py-1.5 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                       class="w-20 text-right px-2 py-1.5 rounded-lg border {% if delivery_errors.form %}border-red-300 {% endif %}bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
                 {# Paired with the quantity above: the view zips these two #}
                 {# lists back together, so each row must emit exactly one of #}
                 {# each. #}
-                <input type="hidden" name="item_id" value="{{ item.id }}">
+                <input type="hidden" name="item_id" value="{{ row.item.id }}">
             </div>
             {% endfor %}
         </div>
@@ -85,13 +98,16 @@
             <div class="flex-1">
                 <label class="block text-xs text-slate-500 mb-1" for="delivered_on">Handed over on</label>
                 <input type="date" name="delivered_on" id="delivered_on"
-                       value="{% now "Y-m-d" %}"
-                       class="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                       value="{% if delivery_form_values.delivered_on %}{{ delivery_form_values.delivered_on }}{% else %}{% now "Y-m-d" %}{% endif %}"
+                       class="w-full px-3 py-2 rounded-xl border {% if delivery_errors.delivered_on %}border-red-300 {% endif %}bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                {% if delivery_errors.delivered_on %}
+                <p class="text-xs text-red-600 mt-1">{{ delivery_errors.delivered_on }}</p>
+                {% endif %}
             </div>
             <div class="flex-1">
                 <label class="block text-xs text-slate-500 mb-1" for="delivery-note">Note (optional)</label>
                 <input type="text" name="note" id="delivery-note" maxlength="200"
-                       placeholder="e.g. rest on Thursday"
+                       placeholder="e.g. rest on Thursday" value="{{ delivery_form_values.note }}"
                        class="w-full px-3 py-2 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
             </div>
         </div>

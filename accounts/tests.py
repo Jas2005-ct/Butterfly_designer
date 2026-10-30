@@ -129,8 +129,21 @@ class UserManagementTests(TestCase):
             reverse("accounts:user_create"),
             {"username": "adm", "password": "pass1234", "role": Role.MANAGER},
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Username already exists.", status_code=400)
         self.assertEqual(User.objects.filter(username="adm").count(), 1)
+
+    def test_a_refused_user_create_keeps_the_typed_username(self):
+        """A duplicate used to blank the whole form, so the admin retyped a
+        username it had just been told was taken."""
+        response = self.client.post(
+            reverse("accounts:user_create"),
+            {"username": "adm2", "password": "123", "role": Role.ADMIN},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Password must be at least 6 characters.", status_code=400)
+        self.assertContains(response, 'value="adm2"', status_code=400)
+        self.assertFalse(User.objects.filter(username="adm2").exists())
 
     def test_toggle_deactivate_and_activate(self):
         target = User.objects.create_user(username="staff2", password="secret123")
@@ -162,5 +175,5 @@ class UserManagementTests(TestCase):
             reverse("accounts:user_create"),
             {"username": "weak", "password": "123", "role": Role.MANAGER},
         )
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
         self.assertFalse(User.objects.filter(username="weak").exists())

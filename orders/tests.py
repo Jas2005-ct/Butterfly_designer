@@ -1280,6 +1280,16 @@ class PartialDeliveryTests(TestCase):
             reverse("orders:delivery_add", args=[self.order.id]), payload, follow=True
         )
 
+    def assertDeliveryRejected(self, response, text):
+        """The 400-and-keep-your-input contract for the delivery form.
+
+        Why a helper: five error paths answer 400 with the page re-rendered,
+        and assertContains defaults to expecting 200 - the first forgotten
+        status_code would silently regenerate the redirect bug this class
+        exists to prevent.
+        """
+        self.assertContains(response, text, status_code=400)
+
     def test_posting_a_delivery_records_it(self):
         response = self.post_delivery()
         self.assertContains(response, "Delivery recorded.")
@@ -1292,7 +1302,7 @@ class PartialDeliveryTests(TestCase):
     def test_over_delivery_from_the_form_is_refused_and_reported(self):
         self.deliver(8)
         response = self.post_delivery(quantity=["5"])
-        self.assertContains(response, "remain undelivered")
+        self.assertDeliveryRejected(response, "remain undelivered")
         self.assertEqual(self.order.delivered_quantity, 8)
 
     def test_boxes_left_blank_are_skipped_not_rejected(self):
@@ -1309,25 +1319,75 @@ class PartialDeliveryTests(TestCase):
 
     def test_all_boxes_blank_is_refused(self):
         response = self.post_delivery(quantity=[""])
-        self.assertContains(response, "Enter how many")
+        self.assertDeliveryRejected(response, "Enter how many")
         self.assertEqual(Delivery.objects.count(), 0)
 
     def test_a_non_numeric_count_is_refused(self):
         response = self.post_delivery(quantity=["two"])
-        self.assertContains(response, "not a whole number")
+        self.assertDeliveryRejected(response, "not a whole number")
         self.assertEqual(Delivery.objects.count(), 0)
 
     def test_another_orders_line_cannot_be_posted(self):
         other = Order.objects.create(customer=self.customer)
         other_item = OrderItem.objects.create(order=other, description="Saree", quantity=1)
         response = self.post_delivery(item_id=[str(other_item.id)], quantity=["1"])
-        self.assertContains(response, "does not belong to this order")
+        self.assertDeliveryRejected(response, "does not belong to this order")
         self.assertEqual(Delivery.objects.count(), 0)
 
     def test_an_invalid_date_is_refused(self):
         response = self.post_delivery(delivered_on="not-a-date")
-        self.assertContains(response, "not a real date")
+        self.assertDeliveryRejected(response, "not a real date")
         self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_a_refused_delivery_keeps_the_typed_counts(self):
+        """A rejected delivery used to redirect to a fresh page and drop the
+        counts, the date and the note - the three things its form exists for."""
+        response = self.post_delivery(
+            quantity=["two"], delivered_on="2026-10-01", note="rest on Thursday"
+        )
+        self.assertDeliveryRejected(response, "not a whole number")
+        self.assertDeliveryRejected(response, 'value="two"')
+        self.assertDeliveryRejected(response, 'value="2026-10-01"')
+        self.assertDeliveryRejected(response, 'value="rest on Thursday"')
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_a_bad_count_keeps_the_other_rows_typed(self):
+        """Only the row that needs fixing should go blank of nothing - the
+        valid row next to it must still show what staff typed."""
+        second = OrderItem.objects.create(
+            order=self.order, description="Saree blouse", quantity=5, price=Decimal("80")
+        )
+        response = self.post_delivery(
+            item_id=[str(self.item.id), str(second.id)],
+            quantity=["3", "two"],
+        )
+        self.assertDeliveryRejected(response, "not a whole number")
+        self.assertDeliveryRejected(response, 'value="3"')
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_a_bad_date_keeps_the_counts_and_the_note(self):
+        """The date names its own field, and the counts + note survive."""
+        response = self.post_delivery(
+            quantity=["3"],
+            delivered_on="32-13-2026",
+            note="rest on Thursday",
+        )
+        self.assertDeliveryRejected(response, "not a real date")
+        self.assertDeliveryRejected(response, 'value="3"')
+        self.assertDeliveryRejected(response, 'value="rest on Thursday"')
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_the_refused_page_keeps_every_panel(self):
+        """Trading one data loss for two smaller ones: the refused re-render
+        must not blank the payments panel or the delivery card it sits in."""
+        response = self.post_delivery(quantity=[""])
+        self.assertDeliveryRejected(response, "Enter how many")
+        self.assertDeliveryRejected(response, "Record a delivery")
+        self.assertDeliveryRejected(response, 'id="order-payments"')
+
+    def test_a_refused_delivery_keeps_the_note(self):
+        response = self.post_delivery(quantity=[""], note="rest on Thursday")
+        self.assertDeliveryRejected(response, 'value="rest on Thursday"')
 
     def test_a_blank_date_defaults_to_today(self):
         response = self.post_delivery(delivered_on="")

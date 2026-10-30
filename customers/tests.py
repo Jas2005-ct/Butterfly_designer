@@ -114,7 +114,7 @@ class CustomerMeasurementTests(TestCase):
             reverse("customers:create"),
             {"name": "Priya", "phone": "9876543210", "waist": "twenty"},
         )
-        self.assertContains(response, "Waist must be a number")
+        self.assertContains(response, "Waist must be a number", status_code=400)
 
     def test_out_of_range_measurement_is_rejected(self):
         """Zero, negatives and transposed digits are typos, not measurements."""
@@ -124,7 +124,7 @@ class CustomerMeasurementTests(TestCase):
                     reverse("customers:create"),
                     {"name": "Priya", "phone": "9876543210", "hips": bad},
                 )
-                self.assertContains(response, "Hips must be more than 0")
+                self.assertContains(response, "Hips must be more than 0", status_code=400)
 
     def test_rejected_measurement_creates_no_customer(self):
         """Validating before writing means a typo leaves no half-made row."""
@@ -140,8 +140,39 @@ class CustomerMeasurementTests(TestCase):
             reverse("customers:create"),
             {"name": "Priya", "phone": "9876543210", "bust": "34", "waist": "twenty"},
         )
-        self.assertContains(response, 'value="34"')
-        self.assertContains(response, "twenty")
+        self.assertContains(response, 'value="34"', status_code=400)
+        self.assertContains(response, "twenty", status_code=400)
+
+    def test_a_refused_customer_keeps_the_typed_name_and_phone(self):
+        """The identity boxes used to render empty on any refusal, because
+        the view passed `form` over and the template ignored it."""
+        response = self.client.post(
+            reverse("customers:create"),
+            {"name": "", "phone": "9876543210", "notes": "calls after 6"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Name and phone are required.", status_code=400)
+        self.assertContains(response, 'value="9876543210"', status_code=400)
+        self.assertContains(response, "calls after 6", status_code=400)
+        self.assertFalse(Customer.objects.exists())
+
+    def test_edit_refusal_keeps_the_typed_identity_fields(self):
+        """An edited name must not be silently replaced by the stored copy
+        just because a measurement elsewhere in the form was wrong."""
+        customer = Customer.objects.create(name="Priya", phone="9876543210", notes="stored")
+        response = self.client.post(
+            reverse("customers:edit", args=[customer.id]),
+            {"name": "Priya Nair", "phone": "9876500000", "waist": "twenty"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, 'value="Priya Nair"', status_code=400)
+        self.assertContains(response, 'value="9876500000"', status_code=400)
+        self.assertContains(response, "Waist must be a number", status_code=400)
+        customer.refresh_from_db()
+        # Nothing written on a refusal.
+        self.assertEqual(customer.name, "Priya")
+        self.assertEqual(customer.phone, "9876543210")
+        self.assertFalse(CustomerMeasurement.objects.filter(customer=customer).exists())
 
     def test_edit_prefills_stored_measurements(self):
         customer = Customer.objects.create(name="Priya", phone="9876543210")

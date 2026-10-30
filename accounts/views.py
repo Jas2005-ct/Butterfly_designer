@@ -39,24 +39,35 @@ def user_list(request):
 
 @admin_required
 def user_create(request):
+    """Create a shop account. A rejected POST re-renders with the typed
+    username and role, at 400, with the reason inline - the password is
+    deliberately never redisplayed, but a username mistyped against a
+    duplicate should not be retyped either."""
+    def refused(error):
+        return render(
+            request,
+            "shop/accounts/user_create.html",
+            {"roles": Role.choices, "form": request.POST, "error": error},
+            status=400,
+        )
+
     if request.method == "POST":
         username = (request.POST.get("username") or "").strip()
         password = request.POST.get("password") or ""
         role = request.POST.get("role") or Role.MANAGER
         if not username or not password:
-            messages.error(request, "Username and password are required.")
-        elif len(password) < 6:
-            messages.error(request, "Password must be at least 6 characters.")
-        elif role not in Role.values:
-            messages.error(request, "Invalid role.")
-        elif User.objects.filter(username=username).exists():
-            messages.error(request, "Username already exists.")
-        else:
-            user = User.objects.create_user(username=username, password=password)
-            user.profile.role = role
-            user.profile.save(update_fields=["role"])
-            messages.success(request, f"User '{username}' created.")
-            return redirect("accounts:user_list")
+            return refused("Username and password are required.")
+        if len(password) < 6:
+            return refused("Password must be at least 6 characters.")
+        if role not in Role.values:
+            return refused("Invalid role.")
+        if User.objects.filter(username=username).exists():
+            return refused("Username already exists.")
+        user = User.objects.create_user(username=username, password=password)
+        user.profile.role = role
+        user.profile.save(update_fields=["role"])
+        messages.success(request, f"User '{username}' created.")
+        return redirect("accounts:user_list")
     return render(request, "shop/accounts/user_create.html", {"roles": Role.choices})
 
 
