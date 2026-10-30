@@ -5,22 +5,22 @@
 {# getlist() and zips the rows together again. #}
 
 <tr class="item-row align-top">
-    <td class="py-1 pr-2">
+    <td class="py-1 pr-4">
         <input type="hidden" name="item_id" value="{{ item.id|default:'' }}">
         <input type="text" name="item_description" value="{{ item.description|default:'' }}"
                placeholder="Blouse with lining"
                class="w-full px-2 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
     </td>
-    <td class="py-1 pr-2">
+    <td class="py-1 pr-4">
         <input type="text" name="item_quantity" inputmode="numeric" value="{{ item.quantity|default:1 }}"
                class="w-full px-2 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
     </td>
-    <td class="py-1 pr-2">
+    <td class="py-1 pr-4">
         <input type="text" name="item_price" inputmode="decimal" value="{{ item.price|default:'' }}"
                placeholder="—"
                class="w-full px-2 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
     </td>
-    <td class="py-1 pr-2">
+    <td class="py-1 pr-4">
         <select name="item_material"
                 class="w-full px-2 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
             {% for value, label in material_choices %}
