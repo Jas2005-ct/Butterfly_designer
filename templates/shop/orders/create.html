@@ -135,6 +135,18 @@
             </div>
 
             <div class="mb-4">
+                {# The one money hint. It is computed live from the item rows
+                     above by the editor's script and lives here - beside the
+                     box staff actually type into - rather than under the table,
+                     because a figure nobody can act on from where they are
+                     standing is decoration. On create Total picks the hint up
+                     while left blank (the editor script's job, create only); on
+                     edit it is read-only, because an empty Total means "not
+                     agreed yet". #}
+                <div id="items-total-hint" class="hidden mb-2 text-sm text-slate-600">
+                    Items add up to <span class="font-semibold tabular-nums" id="items-total-amount">₹0.00</span>
+                    {% if not order %} — Total picks this up while left blank.{% endif %}
+                </div>
                 <label for="total" class="block text-sm font-medium text-slate-700 mb-1">Total (₹)</label>
                 <input type="number" name="total" id="total" step="0.01" min="0"
                        value="{{ form_values.total }}"
@@ -156,7 +168,7 @@
                         <label for="description" class="block text-sm font-medium text-slate-700 mb-1">Description</label>
                         <textarea name="description" id="description" rows="3" placeholder="Blouse with lining, princess cut…"
                                   class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">{{ form_values.description }}</textarea>
-                        <p class="text-xs text-slate-500 mt-1">Fills itself in from the first item — overwrite it if the order needs its own wording.</p>
+                        <p class="text-xs text-slate-500 mt-1">Short wording for the order screen — nothing is filled in for you.</p>
                     </div>
                     <div>
                         <label for="material_cost" class="block text-sm font-medium text-slate-700 mb-1">Shop's material cost (₹)</label>

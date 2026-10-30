@@ -1593,6 +1593,40 @@ class OrderFormConversationOrderTests(TestCase):
         self.assertLess(how_many, when)
         self.assertLess(when, how_much)
 
+    def test_the_item_rows_no_longer_show_their_own_sums(self):
+        """The de-clutter decision pinned: rows tally pieces, not money.
+
+        The per-row amounts and the table-side subtotal were only ever
+        supporting cast for the Total box. Printing the same number in three
+        places was the "too complicated" complaint, so both are gone - the
+        rows carry no figure, and the hint beside Total is the sole working
+        copy.
+        """
+        html = self.client.get(reverse("orders:create")).content.decode()
+        self.assertNotIn("data-line-total", html)
+        self.assertNotIn('id="items-subtotal"', html)
+
+    def test_the_money_hint_lives_beside_total_on_both_forms(self):
+        """The only live figure on the page belongs to the box it informs."""
+        create = self.client.get(reverse("orders:create")).content.decode()
+        self.assertIn('id="items-total-hint"', create)
+        self.assertLess(create.index('id="items-total-hint"'), create.index('id="total"'))
+        # Not promised on create only: the hint is reference for both.
+        self.assertIn("Total picks this up while left blank", create)
+
+        order = Order.objects.create(customer=self.customer, total=Decimal("500"))
+        edit = self.client.get(reverse("orders:edit", args=[order.id])).content.decode()
+        self.assertIn('id="items-total-hint"', edit)
+        self.assertLess(edit.index('id="items-total-hint"'), edit.index('id="total"'))
+        self.assertNotIn("Total picks this up while left blank", edit)
+
+    def test_description_is_never_filled_in_for_staff(self):
+        """Mirroring the first item into Description was autofill nobody
+        asked for - the order screen wording should be whatever the counter
+        decides it is, blank included."""
+        html = self.client.get(reverse("orders:create")).content.decode()
+        self.assertNotIn("Fills itself in", html)
+
     def test_new_orders_land_on_the_payments_panel(self):
         """Taking the advance is the next thing that happens after Create, so
         the redirect targets the panel instead of making staff hunt for it."""
