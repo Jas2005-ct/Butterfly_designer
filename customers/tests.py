@@ -114,7 +114,7 @@ class CustomerMeasurementTests(TestCase):
             reverse("customers:create"),
             {"name": "Priya", "phone": "9876543210", "waist": "twenty"},
         )
-        self.assertContains(response, "Waist must be a number")
+        self.assertContains(response, "Waist must be a number", status_code=400)
 
     def test_out_of_range_measurement_is_rejected(self):
         """Zero, negatives and transposed digits are typos, not measurements."""
@@ -124,7 +124,7 @@ class CustomerMeasurementTests(TestCase):
                     reverse("customers:create"),
                     {"name": "Priya", "phone": "9876543210", "hips": bad},
                 )
-                self.assertContains(response, "Hips must be more than 0")
+                self.assertContains(response, "Hips must be more than 0", status_code=400)
 
     def test_rejected_measurement_creates_no_customer(self):
         """Validating before writing means a typo leaves no half-made row."""
@@ -140,8 +140,68 @@ class CustomerMeasurementTests(TestCase):
             reverse("customers:create"),
             {"name": "Priya", "phone": "9876543210", "bust": "34", "waist": "twenty"},
         )
-        self.assertContains(response, 'value="34"')
-        self.assertContains(response, "twenty")
+        self.assertContains(response, 'value="34"', status_code=400)
+        self.assertContains(response, "twenty", status_code=400)
+
+    def test_the_typed_echo_survives_the_browser(self):
+        """The echo must be visible, not merely present in the HTML.
+
+        A number widget sanitizes a non-numeric value into an empty box
+        before it is drawn, so the refusal page could carry "twenty" and
+        still LOOK blank in a real browser - silently undoing the whole
+        keep-what-was-typed contract for the most common typo class. Text
+        plus inputmode shows what was typed and keeps the numeric
+        keyboard; the 0-100 range rules belong to the view alone.
+        """
+        response = self.client.post(
+            reverse("customers:create"),
+            {"name": "Priya", "phone": "9876543210", "waist": "twenty"},
+        )
+        self.assertContains(response, 'type="text" name="waist"', status_code=400)
+        self.assertContains(response, 'value="twenty"', status_code=400)
+        self.assertNotIn('type="number"', response.content.decode())
+
+    def test_template_comments_never_leak_into_the_page(self):
+        """A comment that runs across lines prints as literal page text -
+        Django strips a {# #} comment only when it closes on the same line.
+        Covers the create form, the shared measurement card and the edit
+        form, all of which carry single-line echo notes now."""
+        create = self.client.get(reverse("customers:create")).content.decode()
+        self.assertNotIn("{#", create)
+        customer = Customer.objects.create(name="Priya", phone="9876543210")
+        edit = self.client.get(reverse("customers:edit", args=[customer.id])).content.decode()
+        self.assertNotIn("{#", edit)
+
+    def test_a_refused_customer_keeps_the_typed_name_and_phone(self):
+        """The identity boxes used to render empty on any refusal, because
+        the view passed `form` over and the template ignored it."""
+        response = self.client.post(
+            reverse("customers:create"),
+            {"name": "", "phone": "9876543210", "notes": "calls after 6"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Name and phone are required.", status_code=400)
+        self.assertContains(response, 'value="9876543210"', status_code=400)
+        self.assertContains(response, "calls after 6", status_code=400)
+        self.assertFalse(Customer.objects.exists())
+
+    def test_edit_refusal_keeps_the_typed_identity_fields(self):
+        """An edited name must not be silently replaced by the stored copy
+        just because a measurement elsewhere in the form was wrong."""
+        customer = Customer.objects.create(name="Priya", phone="9876543210", notes="stored")
+        response = self.client.post(
+            reverse("customers:edit", args=[customer.id]),
+            {"name": "Priya Nair", "phone": "9876500000", "waist": "twenty"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, 'value="Priya Nair"', status_code=400)
+        self.assertContains(response, 'value="9876500000"', status_code=400)
+        self.assertContains(response, "Waist must be a number", status_code=400)
+        customer.refresh_from_db()
+        # Nothing written on a refusal.
+        self.assertEqual(customer.name, "Priya")
+        self.assertEqual(customer.phone, "9876543210")
+        self.assertFalse(CustomerMeasurement.objects.filter(customer=customer).exists())
 
     def test_edit_prefills_stored_measurements(self):
         customer = Customer.objects.create(name="Priya", phone="9876543210")

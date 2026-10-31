@@ -121,6 +121,47 @@ class PaymentViewTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(Payment.objects.exists())
 
+    def test_a_refused_payment_keeps_what_was_typed(self):
+        """Every rejection site re-renders the panel with the bound form.
+
+        Why this test: the rejections share one `rejected()` closure in the
+        view, and this is the only one a browser POST can actually reach -
+        the service layer's ValueError is unreachable because the Form
+        co-validates kind/delivery, so it cannot be driven without mocks.
+        Asserting binding here exercises the physical thing users should
+        never lose: the amount, mode and note coming back on screen.
+        """
+        response = self.client.post(
+            self.url(),
+            {"amount": "0", "mode": "card", "note": "upi later"},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Please fix the highlighted fields.", status_code=400)
+        self.assertContains(response, 'value="0"', status_code=400)
+        self.assertContains(response, 'value="upi later"', status_code=400)
+        self.assertContains(response, 'checked', status_code=400)
+        self.assertFalse(Payment.objects.exists())
+
+    def test_the_typed_echo_survives_the_browser(self):
+        """The bad amount must be visible, not merely present in the HTML.
+
+        A number widget blanks a non-numeric value at render time, so the
+        panel could carry "abc" and still show an empty box - the same
+        browser behaviour the order and customer forms were converted for.
+        The widget is a text input with a numeric keyboard now (the form's
+        min_value remains the only validator), so the typed value and the
+        message explaining the refusal are on screen together.
+        """
+        response = self.client.post(
+            self.url(),
+            {"amount": "abc", "mode": "cash"},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, 'type="text" name="amount"', status_code=400)
+        self.assertContains(response, 'value="abc"', status_code=400)
+
     def test_add_zero_returns_400(self):
         response = self.client.post(
             self.url(),

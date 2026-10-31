@@ -30,7 +30,31 @@ what lets the listener survive every re-render.
     // and keeps the horizontally scrolled column position across the swap,
     // because #board-content is replaced wholesale and the column scroller
     // with it (otherwise advancing a card would snap the board back to
-    // column one).
+    // column one) - and fixed-sizes the column wrapper so the board never
+    // scrolls the whole page (fitColumns below).
+    // Fixed pixel height for the column wrapper (see _board_columns.html).
+    // In JS rather than a guessed CSS calc(): the chrome above the board -
+    // app header, page heading, tab bar, any flash messages - varies, and a
+    // rounded guess that came up short would re-introduce the page scroll
+    // this exists to remove. The budget runs from the wrapper's own top
+    // edge down to the bottom tab bar's clearance (main's bottom padding).
+    // Re-applied after every swap because a re-rendered fragment goes back
+    // to its inline fallback first.
+    function fitColumns() {
+        var s = document.querySelector("#board-content [data-board-columns]");
+        if (!s) return;
+        var main = document.querySelector("main");
+        var bottom = main ? parseFloat(getComputedStyle(main).paddingBottom) : 112;
+        var top = s.getBoundingClientRect().top + window.scrollY;
+        var avail = window.innerHeight + window.scrollY - top - bottom;
+        s.style.height = Math.max(avail, 320) + "px";
+    }
+    fitColumns();
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", fitColumns);
+    }
+    window.addEventListener("resize", fitColumns);
+
     var savedScroll = 0;
     document.body.addEventListener('htmx:beforeSwap', function (e) {
         var t = e.detail && e.detail.target;
@@ -43,6 +67,7 @@ what lets the listener survive every re-render.
         if (!t || t.id !== 'board-content') return;
         var s = t.querySelector('.overflow-x-auto');
         if (s) s.scrollLeft = savedScroll;
+        fitColumns();
     });
     document.body.addEventListener('orderMoved', function (e) {
         var d = e.detail || {};

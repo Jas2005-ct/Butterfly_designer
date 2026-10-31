@@ -154,13 +154,33 @@ def customer_create(request):
         notes = (request.POST.get("notes") or "").strip()
         values, measurement_error = _measurements_from_post(request)
 
+        def refused(error=None):
+            """Re-render at 400 with everything typed, both errors shown.
+
+            Same rejection contract as the order forms: 400, values echoed
+            as typed, and each message beside the panel it belongs to -
+            which is why the check-the-measurements rule lives below on the
+            customer fields, not in a flash message that outruns them.
+            """
+            return render(
+                request,
+                "shop/customers/create.html",
+                {
+                    "form": request.POST,
+                    "measurements": _posted_measurements(request),
+                    "measurement_error": measurement_error,
+                    "customer_error": error,
+                },
+                status=400,
+            )
+
         if not name or not phone:
-            messages.error(request, "Name and phone are required.")
+            return refused("Name and phone are required.")
         elif measurement_error:
             # Check the measurements before creating anything. Creating the
             # customer first and then rejecting a typo would leave a
             # half-registered row behind while the form re-renders.
-            messages.error(request, measurement_error)
+            return refused()
         else:
             customer = Customer.objects.create(
                 name=name, phone=phone, notes=notes, created_by=request.user
@@ -168,14 +188,6 @@ def customer_create(request):
             _save_measurements(customer, values)
             messages.success(request, "Customer added.")
             return redirect("customers:list")
-
-        # Repopulate: a typo in one measurement should never cost eight
-        # retypes plus the name and phone.
-        return render(
-            request,
-            "shop/customers/create.html",
-            {"form": request.POST, "measurements": _posted_measurements(request)},
-        )
 
     return render(request, "shop/customers/create.html")
 
@@ -202,8 +214,9 @@ def customer_edit(request, customer_id):
         values, measurement_error = _measurements_from_post(request)
         if measurement_error:
             # Nothing has been written yet, so the stored record is intact
-            # and the staff can just correct the one bad box.
-            messages.error(request, measurement_error)
+            # and the staff can just correct the one bad box. Inline rather
+            # than a flash message: the error names a box inside the
+            # measurements card, and the card is where the fix happens.
             return render(
                 request,
                 "shop/customers/edit.html",
@@ -211,7 +224,9 @@ def customer_edit(request, customer_id):
                     "customer": customer,
                     "form": request.POST,
                     "measurements": _posted_measurements(request),
+                    "measurement_error": measurement_error,
                 },
+                status=400,
             )
 
         customer.name = (request.POST.get("name") or "").strip()

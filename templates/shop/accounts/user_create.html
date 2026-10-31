@@ -13,7 +13,13 @@
 
     <div>
         <label for="username" class="block text-sm font-medium text-slate-700 mb-1">Username</label>
-        <input type="text" name="username" id="username" required
+        {% if error %}
+        <div class="mb-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
+            {{ error }}
+        </div>
+        {% endif %}
+        {# `form` is present only on a refused POST; the password is never echoed back. #}
+        <input type="text" name="username" id="username" value="{{ form.username }}" required
                class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
     </div>
 
@@ -28,7 +34,8 @@
         <div class="grid grid-cols-2 gap-3">
             {% for value, label in roles %}
             <label class="border border-slate-300 rounded-xl px-4 py-3 text-center cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
-                <input type="radio" name="role" value="{{ value }}" class="sr-only" {% if value == 'manager' %}checked{% endif %}>
+                <input type="radio" name="role" value="{{ value }}" class="sr-only"
+                       {% if form %}{% if value == form.role %}checked{% endif %}{% else %}{% if value == 'manager' %}checked{% endif %}{% endif %}>
                 <span class="font-medium text-sm">{{ label }}</span>
                 <span class="block text-xs text-slate-500 mt-0.5">
                     {% if value == 'admin' %}Full access + analytics{% else %}Daily shop work{% endif %}

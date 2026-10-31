@@ -135,8 +135,16 @@
             </div>
 
             <div class="mb-4">
+                {# The one money hint: computed live by the item editor's script, living beside the box it informs (a figure nobody can act on from where they stand is decoration). Create fills a blank Total from it; on edit it is read-only - empty means "not agreed yet". #}
+                <div id="items-total-hint" aria-live="polite" class="hidden mb-2 text-sm text-slate-600">
+                    Items add up to <span class="font-semibold tabular-nums" id="items-total-amount">₹0.00</span>
+                    {% if not order %} — Total picks this up while left blank.{% endif %}
+                </div>
                 <label for="total" class="block text-sm font-medium text-slate-700 mb-1">Total (₹)</label>
-                <input type="number" name="total" id="total" step="0.01" min="0"
+                {# Text, not a number widget: this box echoes a refused value #}
+                {# such as "1500/-", which a number input would sanitize to #}
+                {# nothing on screen. inputmode keeps the numeric keyboard. #}
+                <input type="text" name="total" id="total" inputmode="decimal"
                        value="{{ form_values.total }}"
                        placeholder="Not agreed yet"
                        class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
@@ -156,11 +164,11 @@
                         <label for="description" class="block text-sm font-medium text-slate-700 mb-1">Description</label>
                         <textarea name="description" id="description" rows="3" placeholder="Blouse with lining, princess cut…"
                                   class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">{{ form_values.description }}</textarea>
-                        <p class="text-xs text-slate-500 mt-1">Fills itself in from the first item — overwrite it if the order needs its own wording.</p>
+                        <p class="text-xs text-slate-500 mt-1">Short wording for the order screen — nothing is filled in for you.</p>
                     </div>
                     <div>
                         <label for="material_cost" class="block text-sm font-medium text-slate-700 mb-1">Shop's material cost (₹)</label>
-                        <input type="number" name="material_cost" id="material_cost" step="0.01" min="0"
+                        <input type="text" name="material_cost" id="material_cost" inputmode="decimal"
                                value="{{ form_values.material_cost }}"
                                class="w-full text-lg px-4 py-3 rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
                         {# Why the wording: the Cloth column above asks who #}
