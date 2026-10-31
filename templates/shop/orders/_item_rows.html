@@ -71,6 +71,27 @@
             recalculate();
         });
 
+        // The cloth chips' radios are nameless (see _item_row.html), so the
+        // state that matters lives in each row's hidden item_material mirror.
+        // On any chip change every picker is re-synced wholesale: the ticked
+        // radio wins, its siblings relax, and the mirror takes that value -
+        // so the ticked chip and the posted value can never disagree, no
+        // matter how the browser treats nameless radio groups.
+        function syncMaterialPickers() {
+            Array.prototype.forEach.call(tbody.querySelectorAll("[data-material-picker]"), function (picker) {
+                var checked = picker.querySelector("input[data-material-radio]:checked");
+                var hidden = picker.querySelector("input[name=item_material]");
+                Array.prototype.forEach.call(picker.querySelectorAll("input[data-material-radio]"), function (radio) {
+                    radio.checked = radio === checked;
+                });
+                if (hidden && checked) hidden.value = checked.value;
+            });
+        }
+        tbody.addEventListener("change", function (event) {
+            if (!event.target.closest || !event.target.closest("[data-material-picker]")) return;
+            syncMaterialPickers();
+        });
+
         function fieldValue(row, name) {
             var input = row.querySelector("input[name=" + name + "]");
             return input ? input.value : "";
