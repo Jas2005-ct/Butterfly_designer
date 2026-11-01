@@ -1758,3 +1758,30 @@ class OrderFormConversationOrderTests(TestCase):
             self.client.get(reverse("orders:detail", args=[zero.id]))
         )
         self.assertIn("₹0.00", cell)
+
+
+
+class BoardColumnSortTests(TestCase):
+    """The per-column updated-date sort contract.
+
+    Why pinned: board.html sorts cards client-side off a data-updated
+    stamp on every card and one .col-sort toggle per column header. If a
+    future template edit drops either marker, the button silently
+    becomes a no-op - so the board must always render a stamp on its
+    cards and exactly one toggle per column, never one without the other.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="mgr", password="secret123")
+        self.client.login(username="mgr", password="secret123")
+        self.customer = Customer.objects.create(name="Sorty", phone="9876543210")
+        self.order = Order.objects.create(customer=self.customer)
+
+    def test_one_sort_button_per_column_and_stamped_cards(self):
+        response = self.client.get(reverse("orders:board"))
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertIn('data-updated="', html)
+        self.assertEqual(
+            html.count('class="col-sort'), html.count('id="col-count-')
+        )

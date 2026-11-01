@@ -1,4 +1,6 @@
-<div id="order-card-{{ order.id }}" class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm hover:shadow-md transition-all">
+{# data-updated is the ISO stamp the client-side column sort sorts by; #}
+{# ISO strings with one timezone compare lexicographically. #}
+<div id="order-card-{{ order.id }}" data-updated="{{ order.updated_at|date:"c" }}" class="bg-white rounded-xl border border-slate-200 p-3 shadow-sm hover:shadow-md transition-all">
     <a href="{% url 'orders:detail' order.id %}" class="block">
         <div class="font-medium text-slate-900">{{ order.order_number }}</div>
         <div class="text-sm text-slate-500 truncate">{{ order.customer.name }}</div>
