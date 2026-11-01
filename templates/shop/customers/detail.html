@@ -21,7 +21,7 @@
 </div>
 
 <!-- Customer Info Card -->
-<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-5">
     <div class="grid grid-cols-2 gap-4">
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Phone</div>
@@ -41,7 +41,7 @@
 </div>
 
 <!-- Measurements: this customer's current numbers -->
-<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-5">
     {% include "shop/customers/_measurement_list.html" with rows=customer.measurement.measured %}
     {% if not customer.measurement %}
     <p class="text-sm text-slate-500">
@@ -52,7 +52,7 @@
 </div>
 
 <!-- Orders -->
-<div class="bg-white rounded-2xl border border-slate-200 p-5">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
     <div class="flex items-center justify-between mb-4">
         <h3 class="font-bold">Order History</h3>
         <span class="text-sm text-slate-500">{{ orders.count }} orders</span>

@@ -55,6 +55,40 @@ what lets the listener survive every re-render.
     }
     window.addEventListener("resize", fitColumns);
 
+
+// Per-column sort by updated date. Client-side on purpose for now:
+// each column's cards already sit in the DOM (capped set), so sorting
+// costs no round trip and each column toggles independently. Children
+// without a stamp (the empty note, the "show all" link) always pin to
+// the bottom in their original order. A tap that advances a card
+// re-renders the fragment and resets every column to the server's
+// urgency order - deliberate, because the cap can hide newer cards
+// from the top of a sorted column at any moment.
+function applyColumnSort(column) {
+    var list = column.querySelector("[data-card-list]");
+    var button = column.querySelector(".col-sort");
+    if (!list || !button) return;
+    var dir = button.dataset.sort === "desc" ? 1 : -1;
+    var cards = [], tail = [];
+    Array.prototype.forEach.call(list.children, function (child) {
+        (child.hasAttribute("data-updated") ? cards : tail).push(child);
+    });
+    cards.sort(function (a, b) {
+        var ka = a.getAttribute("data-updated"), kb = b.getAttribute("data-updated");
+        if (ka === kb) return 0;
+        return ka < kb ? -dir : dir;
+    });
+    cards.forEach(function (card) { list.appendChild(card); });
+    tail.forEach(function (tail_item) { list.appendChild(tail_item); });
+    button.dataset.sort = dir === -1 ? "desc" : "asc";
+    button.textContent = dir === -1 ? "\u2191" : "\u2193";
+}
+document.body.addEventListener("click", function (event) {
+    var button = event.target.closest ? event.target.closest(".col-sort") : null;
+    if (!button) return;
+    var column = button.closest("[data-stage-column]");
+    if (column) applyColumnSort(column);
+});
     var savedScroll = 0;
     document.body.addEventListener('htmx:beforeSwap', function (e) {
         var t = e.detail && e.detail.target;

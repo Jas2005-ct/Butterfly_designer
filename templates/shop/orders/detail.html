@@ -30,7 +30,7 @@
 </div>
 
 <!-- Order Header Card -->
-<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 print:hidden">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-5 print:hidden">
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Service</div>
@@ -84,7 +84,7 @@
 {# Itemised lines. Hidden entirely when the order has none, because the #}
 {# editor is optional and an unlisted job should not grow an empty table. #}
 {% if order.items.all %}
-<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-5">
     <h2 class="text-lg font-semibold mb-3">Items</h2>
     <table class="w-full text-sm">
         <thead>
@@ -132,7 +132,7 @@
 {# unmeasured orders don't grow an empty card. The note earns its place: #}
 {# these numbers are frozen and may differ from the customer's current ones, #}
 {# which otherwise reads as a bug. #}
-{% if order.measurement %}<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 print:hidden">
+{% if order.measurement %}<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-5 print:hidden">
     <p class="text-sm text-slate-500 mb-3">
         Measured when this order was taken — kept as a record, so it may differ
         from the customer's current measurements.
@@ -147,12 +147,12 @@
 </div>
 
 <!-- Stage History Timeline (refreshed out-of-band after HTMX advances) -->
-<div class="bg-white rounded-2xl border border-slate-200 p-5 print:hidden" id="stage-timeline">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 print:hidden" id="stage-timeline">
     {% include "shop/orders/_stage_timeline.html" %}
 </div>
 
 <!-- Payments (HTMX partial) -->
-<div class="bg-white rounded-2xl border border-slate-200 p-5 mt-5 print:hidden" id="order-payments">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mt-5 print:hidden" id="order-payments">
     {% include "shop/billing/_payments.html" %}
 </div>
 

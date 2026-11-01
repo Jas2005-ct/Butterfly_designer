@@ -16,7 +16,7 @@
                 </svg>
             </div>
             <input type="text" name="q" value="{{ query }}" placeholder="Search name or phone…"
-                   class="w-full text-sm font-normal pl-10 pr-9 py-2.5 sm:py-3 bg-white text-slate-800 placeholder:text-slate-400 rounded-xl border border-slate-200 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all outline-none">
+                   class="w-full text-sm font-normal pl-10 pr-9 py-2.5 sm:py-3 bg-white text-slate-800 placeholder:text-slate-400 rounded-xl border border-slate-200 shadow-sm shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all outline-none">
             {% if query %}
             <a href="{% url 'customers:list' %}"
                class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
@@ -40,7 +40,7 @@
 {% if customers %}
 <ul class="space-y-2">
     {% for c in customers %}
-    <li class="bg-white rounded-xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <li class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div class="flex-1 min-w-0">
             <a href="{% url 'customers:detail' c.id %}" class="font-medium text-indigo-700 hover:underline">
                 {{ c.name }}
@@ -60,7 +60,7 @@
     {% endfor %}
 </ul>
 {% else %}
-<div class="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center text-slate-400">
     <p class="text-lg font-medium">No customers yet</p>
     <p class="text-sm mt-1">Add your first customer to get started.</p>
     <a href="{% url 'customers:create' %}"

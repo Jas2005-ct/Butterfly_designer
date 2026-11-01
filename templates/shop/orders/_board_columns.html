@@ -12,18 +12,28 @@ totals together, instead of leaving the DOM stale until a manual reload.
      shows more columns side-by-side as the screen widens (landscape/desktop).
      The wrapper is height-bounded (inline fallback, exact px set by the
      script in board.html) so the page itself never scrolls: each column's
-     card list scrolls inside its own column instead. -->
-<div class="overflow-x-auto pb-4 snap-x scroll-smooth" style="height: 70vh; height: 70dvh;" data-board-columns>
+     card list scrolls inside its own column instead. bg-slate-200 is the
+     board surface: the tray is a tonal step between the page canvas
+     and the column surfaces, so a slightly darkened tray is what separates
+     the stages from the page behind them (canvas < tray < cards). -->
+<div class="overflow-x-auto bg-slate-200 rounded-2xl p-3 pb-4 snap-x scroll-smooth" style="height: 80vh; height: 80vh;"
+    data-board-columns>
     <div class="flex gap-3 min-w-max h-full" style="min-width: 100%;">
         {% for stage in stage_order %}
-        <div class="w-72 lg:w-80 flex-shrink-0 snap-start bg-slate-50 rounded-2xl border border-slate-200 flex flex-col">
+        <div
+            class="w-72 lg:w-80 flex-shrink-0 snap-start bg-slate-50 rounded-2xl border border-slate-200 flex flex-col" data-stage-column>
             <!-- Stage Header -->
-            <div class="px-4 py-3 border-b border-slate-200 bg-white rounded-t-2xl flex items-center justify-between sticky top-0">
+            <div
+                class="px-4 py-3 border-b border-slate-200 bg-white rounded-t-2xl flex items-center justify-between sticky top-0">
                 <h3 class="font-bold text-sm uppercase tracking-wider text-slate-600">
                     {{ stage|capfirst }}
                 </h3>
-                <span id="col-count-{{ stage }}" class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                    {{ column_totals|get_item:stage }}
+                <span class="flex items-center gap-1.5">
+                    <button type="button" class="col-sort text-slate-400 hover:text-indigo-600 px-2 py-1 transition-colors"
+                            title="Sort by last updated" aria-label="Sort by last updated">&#x21C5;</button>
+                    <span id="col-count-{{ stage }}" class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                        {{ column_totals|get_item:stage }}
+                    </span>
                 </span>
             </div>
 
@@ -31,9 +41,9 @@ totals together, instead of leaving the DOM stale until a manual reload.
                  the column is height-bounded by the wrapper, and the card
                  list has to be allowed to shrink so it scrolls here instead
                  of the page growing. -->
-            <div class="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+            <div class="flex-1 overflow-y-auto p-3 space-y-3 min-h-0" data-card-list>
                 {% for order in columns|get_item:stage %}
-                    {% include "shop/orders/_order_card.html" %}
+                {% include "shop/orders/_order_card.html" %}
                 {% empty %}
                 <div class="text-center text-slate-300 py-8 text-sm">
                     <p>No orders</p>
@@ -43,7 +53,7 @@ totals together, instead of leaving the DOM stale until a manual reload.
                 {% if remaining > 0 %}
                 <div class="text-center pt-1">
                     <a href="?tab={{ tab }}&view=board{% if query %}&q={{ query }}{% endif %}&show=all"
-                       class="inline-block px-4 py-2 rounded-xl text-sm font-medium border border-slate-300 text-slate-600 bg-white hover:bg-slate-100">
+                        class="inline-block px-4 py-2 rounded-xl text-sm font-medium border border-slate-300 text-slate-600 bg-white hover:bg-slate-100">
                         Show all {{ remaining }} more
                     </a>
                 </div>
