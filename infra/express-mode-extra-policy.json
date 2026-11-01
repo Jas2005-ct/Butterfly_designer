@@ -74,6 +74,7 @@
         "logs:PutLogEvents",
         "logs:DescribeLogStreams",
         "logs:DescribeLogGroups",
+        "logs:GetLogEvents",
         "logs:TagResource"
       ],
       "Resource": "*"
