@@ -116,18 +116,46 @@ jobs:
           # service uses - see docs/aws-setup.md sections 4 and 5.
           NETWORK="awsvpcConfiguration={subnets=[subnet-0c3224681fe6f4964,subnet-0dcb582aab2b0200f,subnet-00c09a8f2fdfdf3ed],securityGroups=[sg-0d7b2baa46c4620bb],assignPublicIp=ENABLED}"
 
-          # The image is overridden so migrations come from the release being
-          # deployed; DATABASE_URL and the rest of the environment are inherited
-          # from the existing task definition (never set in this file).
-          OVERRIDES=$(printf '{"containerOverrides":[{"name":"%s","image":"%s","command":["migrate","--noinput"]}]}' "$CONTAINER" "$IMAGE")
+          # The image must come from the release being deployed - but run-task
+          # overrides cannot carry an image ("Unknown parameter ...: image").
+          # So: describe the current task definition, swap in the release
+          # image, register a fresh revision, and launch the migration against
+          # THAT revision. DATABASE_URL and the rest of the environment are
+          # inherited from the existing task definition (never set in this
+          # file); the deleted fields are the ones register-task-definition
+          # does not accept back.
+          TD_JSON=$(aws ecs describe-task-definition \
+            --task-definition "$FAMILY" \
+            --query 'taskDefinition')
+          TD_FILE=$(mktemp)
+          echo "$TD_JSON" \
+            | jq --arg image "$IMAGE" '
+                del(.taskDefinitionArn, .revision, .status,
+                    .requiresAttributes, .compatibilities,
+                    .registeredAt, .registeredBy, .enableFaultInjection)
+                | .containerDefinitions[0].image = $image' \
+            > "$TD_FILE"
+          MIG_TD=$(aws ecs register-task-definition \
+            --cli-input-json "file://$TD_FILE" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          rm -f "$TD_FILE"
+          echo "Migration task definition: $MIG_TD"
+
+          # The image rides the newly registered revision; only the command is
+          # overridden at run time (command - unlike image - IS a valid
+          # containerOverride). entrypoint.sh passes the command through to
+          # manage.py, so the task migrates and exits instead of booting
+          # gunicorn.
+          MIG_CMD=$(printf '{"containerOverrides":[{"name":"%s","command":["migrate","--noinput"]}]}' "$CONTAINER")
 
           echo "Applying migrations with ${IMAGE} ..."
           TASK_ARN=$(aws ecs run-task \
             --cluster "$CLUSTER" \
-            --task-definition "$FAMILY" \
+            --task-definition "$MIG_TD" \
             --launch-type FARGATE \
             --network-configuration "$NETWORK" \
-            --overrides "$OVERRIDES" \
+            --overrides "$MIG_CMD" \
             --query 'tasks[0].taskArn' \
             --output text)
 
