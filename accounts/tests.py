@@ -184,3 +184,54 @@ class UserManagementTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertFalse(User.objects.filter(username="weak").exists())
+
+
+class DjangoAdminAddUserTests(TestCase):
+    """The stock /admin/auth/user/add/ flow, end to end.
+
+    Why this class exists: the User admin ships a ProfileInline while
+    accounts.signals auto-creates a profile on post_save. On the add page
+    both ran for the same brand-new user - the signal's insert succeeded,
+    the inline's insert then hit the profile's unique key on user_id, and
+    the rollback took the new user with it. Every add crashed (a different
+    id each time), while the shop's own accounts:user_create (no inline)
+    kept working, so the bug hid until somebody used Django admin.
+    """
+
+    def setUp(self):
+        User.objects.create_superuser(
+            username="root", email="root@example.com", password="rootpass123"
+        )
+        self.client.login(username="root", password="rootpass123")
+
+    def test_add_page_has_no_profile_inline(self):
+        """No inline on add: with no user yet, the inline could only ever
+        fight the signal over who owns the user_id."""
+        response = self.client.get(reverse("admin:auth_user_add"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["inline_admin_formsets"]), 0)
+
+    def test_add_saves_one_user_and_exactly_one_profile(self):
+        response = self.client.post(
+            reverse("admin:auth_user_add"),
+            {
+                "username": "fresh1",
+                "password1": "uncommon-pass-9876",
+                "password2": "uncommon-pass-9876",
+            },
+        )
+        # Django's own UserAdmin redirects the finished add to the new
+        # user's CHANGE page (that is where groups/permissions are handed
+        # out), not to the changelist.
+        user = User.objects.get(username="fresh1")
+        self.assertRedirects(response, reverse("admin:auth_user_change", args=[user.id]))
+        self.assertEqual(Profile.objects.filter(user=user).count(), 1)
+        self.assertEqual(user.profile.role, Role.MANAGER)
+
+    def test_change_page_still_offers_the_profile_inline(self):
+        """The inline exists to let admins correct a role by hand; gating it
+        off add must not hollow out edit."""
+        root = User.objects.get(username="root")
+        response = self.client.get(reverse("admin:auth_user_change", args=[root.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["inline_admin_formsets"]), 1)

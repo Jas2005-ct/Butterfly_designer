@@ -31,7 +31,8 @@
         {# _item_rows.html keeps the ticks and the mirror consistent. #}
         {% with current=item.material_source|default:'shop' %}
         <input type="hidden" name="item_material" value="{{ current }}">
-        <div class="flex flex-col items-start gap-1" data-material-picker>
+        {# Chips sit on one row; flex-wrap is the escape hatch on narrow screens. #}
+        <div class="flex flex-wrap items-center gap-1" data-material-picker>
             {% for value, label in material_choices %}
             <label class="inline-flex items-center whitespace-nowrap rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs cursor-pointer select-none has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50 has-[:checked]:text-indigo-700">
                 <input type="radio" value="{{ value }}" data-material-radio class="sr-only"

@@ -3,7 +3,7 @@
 {# and a form with no rows would be pure noise. detail.html already hides the #}
 {# Items card the same way. #}
 {% if order.items.all %}
-<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 print:hidden">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 mb-5 print:hidden">
     <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
         <h2 class="text-lg font-semibold">Deliveries</h2>
         <span class="text-sm font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded-full">
