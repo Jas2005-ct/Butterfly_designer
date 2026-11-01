@@ -10,15 +10,15 @@
 
 <!-- KPI cards -->
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
         <div class="text-[11px] text-slate-500 uppercase tracking-wider">Revenue · 30 days</div>
         <div class="text-xl sm:text-2xl font-bold text-indigo-700">₹{{ revenue_30d|floatformat:2 }}</div>
     </div>
-    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
         <div class="text-[11px] text-slate-500 uppercase tracking-wider">Revenue · all time</div>
         <div class="text-xl sm:text-2xl font-bold">₹{{ revenue_total|floatformat:2 }}</div>
     </div>
-    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
         <div class="text-[11px] text-slate-500 uppercase tracking-wider">Profit · booked</div>
         <div class="text-xl sm:text-2xl font-bold text-emerald-700">₹{{ profit.profit|floatformat:2 }}</div>
         <div class="text-[11px] text-slate-400 mt-0.5">₹{{ profit.revenue|floatformat:2 }} − ₹{{ profit.material|floatformat:2 }} material</div>
@@ -31,7 +31,7 @@
 </div>
 
 <!-- Pipeline strip -->
-<div class="bg-white rounded-2xl border border-slate-200 p-4 mb-5 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-5 flex flex-wrap gap-x-6 gap-y-2 text-sm">
     <span><strong>{{ counts.open }}</strong> <span class="text-slate-500">open</span></span>
     <span><strong>{{ counts.delivered }}</strong> <span class="text-slate-500">delivered</span></span>
     <span><strong>{{ counts.cancelled }}</strong> <span class="text-slate-500">cancelled</span></span>
@@ -40,7 +40,7 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
     <!-- Daily revenue -->
-    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
         <h3 class="font-bold mb-4">Revenue · last 14 days</h3>
         <div class="space-y-1.5">
             {% for row in daily %}
@@ -56,7 +56,7 @@
     </div>
 
     <!-- Monthly revenue -->
-    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
         <h3 class="font-bold mb-4">Revenue · last 6 months</h3>
         <div class="space-y-1.5">
             {% for row in monthly %}
@@ -72,7 +72,7 @@
     </div>
 
     <!-- Service mix -->
-    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
         <h3 class="font-bold mb-1">Service mix</h3>
         <p class="text-xs text-slate-500 mb-4">Booked revenue by service (non-cancelled).</p>
         <div class="space-y-2">
@@ -93,7 +93,7 @@
     </div>
 
     <!-- Orders by stage -->
-    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
         <h3 class="font-bold mb-4">Orders by stage</h3>
         <div class="flex flex-wrap gap-2">
             {% for row in stages %}
@@ -120,14 +120,14 @@
     </div>
 
     <!-- Stuck orders -->
-    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 lg:flex lg:flex-col lg:h-[26rem]">
         <div class="flex items-center justify-between mb-1">
             <h3 class="font-bold">Stuck orders</h3>
             <span class="text-xs bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full">{{ stuck|length }} stuck</span>
         </div>
         <p class="text-xs text-slate-500 mb-4">Open orders unchanged for over 3 days.</p>
         {% if stuck %}
-        <ul class="space-y-2">
+        <ul class="space-y-2 lg:flex-1 lg:overflow-y-auto lg:min-h-0">
             {% for order in stuck %}
             <li>
                 <a href="{% url 'orders:detail' order.id %}" class="flex items-center justify-between bg-amber-50/50 rounded-xl border border-amber-100 px-3 py-2.5 hover:border-amber-300">
@@ -146,11 +146,13 @@
     </div>
 
     <!-- Top customers -->
-    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+    {# Same fixed height as the stuck panel, so the bottom row of the #}
+    {# dashboard grid reads as two equal panes however many rows each has. #}
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 lg:flex lg:flex-col lg:h-[26rem]">
         <h3 class="font-bold mb-1">Top customers</h3>
         <p class="text-xs text-slate-500 mb-4">By booked revenue (non-cancelled).</p>
         {% if top %}
-        <ul class="space-y-2">
+        <ul class="space-y-2 lg:flex-1 lg:overflow-y-auto lg:min-h-0">
             {% for c in top %}
             <li>
                 <a href="{% url 'customers:detail' c.id %}" class="flex items-center justify-between bg-slate-50 rounded-xl border border-slate-200 px-3 py-2.5 hover:border-indigo-200">
