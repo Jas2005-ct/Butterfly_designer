@@ -1280,6 +1280,16 @@ class PartialDeliveryTests(TestCase):
             reverse("orders:delivery_add", args=[self.order.id]), payload, follow=True
         )
 
+    def assertDeliveryRejected(self, response, text):
+        """The 400-and-keep-your-input contract for the delivery form.
+
+        Why a helper: five error paths answer 400 with the page re-rendered,
+        and assertContains defaults to expecting 200 - the first forgotten
+        status_code would silently regenerate the redirect bug this class
+        exists to prevent.
+        """
+        self.assertContains(response, text, status_code=400)
+
     def test_posting_a_delivery_records_it(self):
         response = self.post_delivery()
         self.assertContains(response, "Delivery recorded.")
@@ -1292,7 +1302,7 @@ class PartialDeliveryTests(TestCase):
     def test_over_delivery_from_the_form_is_refused_and_reported(self):
         self.deliver(8)
         response = self.post_delivery(quantity=["5"])
-        self.assertContains(response, "remain undelivered")
+        self.assertDeliveryRejected(response, "remain undelivered")
         self.assertEqual(self.order.delivered_quantity, 8)
 
     def test_boxes_left_blank_are_skipped_not_rejected(self):
@@ -1309,25 +1319,88 @@ class PartialDeliveryTests(TestCase):
 
     def test_all_boxes_blank_is_refused(self):
         response = self.post_delivery(quantity=[""])
-        self.assertContains(response, "Enter how many")
+        self.assertDeliveryRejected(response, "Enter how many")
         self.assertEqual(Delivery.objects.count(), 0)
 
     def test_a_non_numeric_count_is_refused(self):
         response = self.post_delivery(quantity=["two"])
-        self.assertContains(response, "not a whole number")
+        self.assertDeliveryRejected(response, "not a whole number")
         self.assertEqual(Delivery.objects.count(), 0)
 
     def test_another_orders_line_cannot_be_posted(self):
         other = Order.objects.create(customer=self.customer)
         other_item = OrderItem.objects.create(order=other, description="Saree", quantity=1)
         response = self.post_delivery(item_id=[str(other_item.id)], quantity=["1"])
-        self.assertContains(response, "does not belong to this order")
+        self.assertDeliveryRejected(response, "does not belong to this order")
         self.assertEqual(Delivery.objects.count(), 0)
 
     def test_an_invalid_date_is_refused(self):
         response = self.post_delivery(delivered_on="not-a-date")
-        self.assertContains(response, "not a real date")
+        self.assertDeliveryRejected(response, "not a real date")
         self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_a_refused_delivery_keeps_the_typed_counts(self):
+        """A rejected delivery used to redirect to a fresh page and drop the
+        counts, the date and the note - the three things its form exists for."""
+        response = self.post_delivery(
+            quantity=["two"], delivered_on="2026-10-01", note="rest on Thursday"
+        )
+        self.assertDeliveryRejected(response, "not a whole number")
+        self.assertDeliveryRejected(response, 'value="two"')
+        self.assertDeliveryRejected(response, 'value="2026-10-01"')
+        self.assertDeliveryRejected(response, 'value="rest on Thursday"')
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_a_bad_count_keeps_the_other_rows_typed(self):
+        """Only the row that needs fixing should go blank of nothing - the
+        valid row next to it must still show what staff typed."""
+        second = OrderItem.objects.create(
+            order=self.order, description="Saree blouse", quantity=5, price=Decimal("80")
+        )
+        response = self.post_delivery(
+            item_id=[str(self.item.id), str(second.id)],
+            quantity=["3", "two"],
+        )
+        self.assertDeliveryRejected(response, "not a whole number")
+        self.assertDeliveryRejected(response, 'value="3"')
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_a_bad_date_keeps_the_counts_and_the_note(self):
+        """The date names its own field, and the counts + note survive."""
+        response = self.post_delivery(
+            quantity=["3"],
+            delivered_on="32-13-2026",
+            note="rest on Thursday",
+        )
+        self.assertDeliveryRejected(response, "not a real date")
+        self.assertDeliveryRejected(response, 'value="3"')
+        self.assertDeliveryRejected(response, 'value="rest on Thursday"')
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_the_refused_page_keeps_every_panel(self):
+        """Trading one data loss for two smaller ones: the refused re-render
+        must not blank the payments panel or the delivery card it sits in."""
+        response = self.post_delivery(quantity=[""])
+        self.assertDeliveryRejected(response, "Enter how many")
+        self.assertDeliveryRejected(response, "Record a delivery")
+        self.assertDeliveryRejected(response, 'id="order-payments"')
+
+    def test_a_refused_delivery_keeps_the_note(self):
+        response = self.post_delivery(quantity=[""], note="rest on Thursday")
+        self.assertDeliveryRejected(response, 'value="rest on Thursday"')
+
+    def test_the_typed_echo_survives_the_browser(self):
+        """The refused count must be visible, not merely present in the HTML.
+
+        A number widget sanitizes a non-numeric value into an empty box at
+        render time: the page could carry "two" and still show an empty box
+        where it was typed. Text + inputmode keeps the numeric keyboard on
+        tablets, shows exactly what was typed, and leaves validation with
+        the server, which is the only validator that ever really ran.
+        """
+        response = self.post_delivery(quantity=["two"])
+        self.assertDeliveryRejected(response, 'type="text" name="quantity"')
+        self.assertDeliveryRejected(response, 'value="two"')
 
     def test_a_blank_date_defaults_to_today(self):
         response = self.post_delivery(delivered_on="")
@@ -1592,6 +1665,53 @@ class OrderFormConversationOrderTests(TestCase):
         self.assertLess(work, how_many)
         self.assertLess(how_many, when)
         self.assertLess(when, how_much)
+
+    def test_the_item_rows_no_longer_show_their_own_sums(self):
+        """The de-clutter decision pinned: rows tally pieces, not money.
+
+        The per-row amounts and the table-side subtotal were only ever
+        supporting cast for the Total box. Printing the same number in three
+        places was the "too complicated" complaint, so both are gone - the
+        rows carry no figure, and the hint beside Total is the sole working
+        copy.
+        """
+        html = self.client.get(reverse("orders:create")).content.decode()
+        self.assertNotIn("data-line-total", html)
+        self.assertNotIn('id="items-subtotal"', html)
+
+    def test_the_money_hint_lives_beside_total_on_both_forms(self):
+        """The only live figure on the page belongs to the box it informs."""
+        create = self.client.get(reverse("orders:create")).content.decode()
+        self.assertIn('id="items-total-hint"', create)
+        self.assertLess(create.index('id="items-total-hint"'), create.index('id="total"'))
+        # Not promised on create only: the hint is reference for both.
+        self.assertIn("Total picks this up while left blank", create)
+
+        order = Order.objects.create(customer=self.customer, total=Decimal("500"))
+        edit = self.client.get(reverse("orders:edit", args=[order.id])).content.decode()
+        self.assertIn('id="items-total-hint"', edit)
+        self.assertLess(edit.index('id="items-total-hint"'), edit.index('id="total"'))
+        self.assertNotIn("Total picks this up while left blank", edit)
+
+    def test_description_is_never_filled_in_for_staff(self):
+        """Mirroring the first item into Description was autofill nobody
+        asked for - the order screen wording should be whatever the counter
+        decides it is, blank included."""
+        html = self.client.get(reverse("orders:create")).content.decode()
+        self.assertNotIn("Fills itself in", html)
+
+    def test_template_comments_never_leak_into_the_page(self):
+        """Django strips {# ... #} only when it closes on the same line; one
+        running across lines gains literal-page status and once printed a
+        paragraph of template prose between Promised date and Total. Pins
+        every comment on these pages to single-line form."""
+        create = self.client.get(reverse("orders:create")).content.decode()
+        self.assertNotIn("{#", create)
+        order = Order.objects.create(customer=self.customer)
+        edit = self.client.get(reverse("orders:edit", args=[order.id])).content.decode()
+        self.assertNotIn("{#", edit)
+        detail = self.client.get(reverse("orders:detail", args=[order.id])).content.decode()
+        self.assertNotIn("{#", detail)
 
     def test_new_orders_land_on_the_payments_panel(self):
         """Taking the advance is the next thing that happens after Create, so

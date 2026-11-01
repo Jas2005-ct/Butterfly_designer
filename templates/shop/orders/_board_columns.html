@@ -9,9 +9,12 @@ That is what makes a tap update the card, the column counts and the tab
 totals together, instead of leaving the DOM stale until a manual reload.
 {% endcomment %}
 <!-- Kanban Board: snap-scrolls per column on touch (portrait tablet),
-     shows more columns side-by-side as the screen widens (landscape/desktop). -->
-<div class="overflow-x-auto pb-4 snap-x scroll-smooth">
-    <div class="flex gap-3 min-w-max" style="min-width: 100%;">
+     shows more columns side-by-side as the screen widens (landscape/desktop).
+     The wrapper is height-bounded (inline fallback, exact px set by the
+     script in board.html) so the page itself never scrolls: each column's
+     card list scrolls inside its own column instead. -->
+<div class="overflow-x-auto pb-4 snap-x scroll-smooth" style="height: 70vh; height: 70dvh;" data-board-columns>
+    <div class="flex gap-3 min-w-max h-full" style="min-width: 100%;">
         {% for stage in stage_order %}
         <div class="w-72 lg:w-80 flex-shrink-0 snap-start bg-slate-50 rounded-2xl border border-slate-200 flex flex-col">
             <!-- Stage Header -->
@@ -24,8 +27,11 @@ totals together, instead of leaving the DOM stale until a manual reload.
                 </span>
             </div>
 
-            <!-- Order Cards (capped; urgency-ordered) -->
-            <div class="flex-1 overflow-y-auto p-3 space-y-3 min-h-[400px]">
+            <!-- Order Cards (capped; urgency-ordered). min-h-0, not a floor:
+                 the column is height-bounded by the wrapper, and the card
+                 list has to be allowed to shrink so it scrolls here instead
+                 of the page growing. -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
                 {% for order in columns|get_item:stage %}
                     {% include "shop/orders/_order_card.html" %}
                 {% empty %}

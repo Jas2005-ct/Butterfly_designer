@@ -836,6 +836,69 @@ def order_create(request):
     )
 
 
+def _order_detail_context(request, order, extra=None):
+    """Build the full order-page context for the detail view and its errors.
+
+    Why one builder instead of order_detail keeping it inline: the
+    record-delivery POST re-renders this very page when it refuses input, and
+    a refused delivery that lost the payments panel or the stepper would be
+    trading one data-loss bug for two smaller ones. The same source keeps
+    every panel consistent on the page and on the way back.
+
+    Args:
+        request: the current request (used for stage permissions).
+        order: the Order the page is about.
+        extra: optional dict merged in last, so callers (the delivery error
+            path) can override delivery-specific context.
+
+    Returns:
+        dict for render().
+    """
+    context = {"order": order, "shop": About.objects.first()}
+    context.update(_detail_status_context(order, request.user))
+    context.update(payment_section_context(order))
+    context["delivery_rows"] = [{"item": item, "typed": ""} for item in order.items.all()]
+    if extra:
+        context.update(extra)
+    return context
+
+
+def _typed_delivery_rows(request, order):
+    """Map each ordered line to the count staff typed, for redisplay.
+
+    Why not reuse the parsed rows: parsing is exactly what fails, so the
+    typed strings go back on screen unvalidated - one bad count must not
+    blank the row that was right. Values here are never saved; they exist
+    only to be shown.
+
+    Args:
+        request: the failed POST.
+        order: the Order whose lines the form listed.
+
+    Returns:
+        List of {"item": OrderItem, "typed": str} shaped for _deliveries.html.
+    """
+    typed = {}
+    for raw_id, raw_quantity in zip(
+        request.POST.getlist("item_id"), request.POST.getlist("quantity")
+    ):
+        item_id = (raw_id or "").strip()
+        if item_id:
+            typed[item_id] = raw_quantity or ""
+    return [
+        {"item": item, "typed": typed.get(str(item.id), "")}
+        for item in order.items.all()
+    ]
+
+
+def _delivery_form_values(request):
+    """The date and note as typed, for redisplay after a refused delivery."""
+    return {
+        "delivered_on": (request.POST.get("delivered_on") or "").strip(),
+        "note": (request.POST.get("note") or "").strip(),
+    }
+
+
 @login_required
 def order_detail(request, order_id):
     """Order detail with stage buttons (HTMX) and inline payment form (Phase 3)."""
@@ -851,10 +914,9 @@ def order_detail(request, order_id):
         ),
         id=order_id,
     )
-    context = {"order": order, "shop": About.objects.first()}
-    context.update(_detail_status_context(order, request.user))
-    context.update(payment_section_context(order))
-    return render(request, "shop/orders/detail.html", context)
+    return render(
+        request, "shop/orders/detail.html", _order_detail_context(request, order)
+    )
 
 
 @login_required
@@ -867,20 +929,43 @@ def order_delivery_add(request, order_id):
     the timeline, the progress bar and the board card all at once. One reload
     refreshes every one of them; a partial response would have to name each
     target and would go stale the next time the page gains a panel.
+
+    A refused POST answers 400 with the page re-rendered and every typed
+    count, the date and the note back on screen - same contract as the order
+    create form. The redirects this replaces landed on a fresh page whose
+    form was blank: a mistyped count dropped the other two counts, the date
+    and the note, on the very form whose whole value is what was typed.
     """
     order = get_object_or_404(Order, id=order_id)
 
+    def refused(errors):
+        """Re-render the order page at 400 with the form as it was typed."""
+        return render(
+            request,
+            "shop/orders/detail.html",
+            _order_detail_context(
+                request,
+                order,
+                extra={
+                    "delivery_rows": _typed_delivery_rows(request, order),
+                    "delivery_form_values": _delivery_form_values(request),
+                    "delivery_errors": {
+                        key: message for key, message in errors.items() if message
+                    },
+                },
+            ),
+            status=400,
+        )
+
     pairs, error = _delivery_lines_from_post(request, order)
     if error:
-        messages.error(request, error)
-        return redirect("orders:detail", order_id=order.id)
+        return refused({"form": error})
 
     raw_date = (request.POST.get("delivered_on") or "").strip()
     if raw_date:
         delivered_on = parse_date(raw_date)
         if delivered_on is None:
-            messages.error(request, "That hand-over date is not a real date.")
-            return redirect("orders:detail", order_id=order.id)
+            return refused({"delivered_on": "That hand-over date is not a real date."})
     else:
         delivered_on = timezone.localdate()
 
@@ -893,8 +978,7 @@ def order_delivery_add(request, order_id):
             recorded_by=request.user,
         )
     except ValueError as e:
-        messages.error(request, str(e))
-        return redirect("orders:detail", order_id=order.id)
+        return refused({"form": str(e)})
 
     messages.success(request, "Delivery recorded.")
     return redirect("orders:detail", order_id=order.id)

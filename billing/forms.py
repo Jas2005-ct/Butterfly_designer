@@ -30,10 +30,15 @@ class PaymentForm(forms.Form):
         max_digits=10,
         decimal_places=2,
         min_value=Decimal("0.01"),
-        widget=forms.NumberInput(
+        # A text box, not a number widget: on a refused POST the bound form
+        # echoes the raw amount, and a browser sanitizes a non-numeric value
+        # into an empty box before it is drawn - the panel could carry "abc"
+        # and still look blank to the person whose amount just bounced.
+        # inputmode keeps the numeric keyboard; min_value above stays the
+        # only validator, exactly as the callers and tests assume.
+        widget=forms.TextInput(
             attrs={
-                "step": "0.01",
-                "min": "0.01",
+                "inputmode": "decimal",
                 "placeholder": "0.00",
                 "class": "w-full text-lg px-4 py-3 rounded-xl border border-slate-300 "
                 "focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none",
