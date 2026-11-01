@@ -44,7 +44,7 @@
 {% if orders %}
 <ul class="space-y-2">
     {% for order in orders %}
-    <li class="bg-white rounded-xl border border-slate-200 p-4">
+    <li class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
         <a href="{% url 'orders:detail' order.id %}" class="flex items-center justify-between gap-3">
             <div class="min-w-0">
                 <div class="font-medium truncate">{{ order.order_number }} · {{ order.customer.name }}</div>
@@ -63,7 +63,7 @@
     {% endfor %}
 </ul>
 {% else %}
-<div class="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
+<div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center text-slate-400">
     <p class="text-lg font-medium">🎉 No dues pending</p>
     <p class="text-sm mt-1">Every open order is fully paid.</p>
 </div>
@@ -83,7 +83,7 @@
     </p>
     <ul class="space-y-2">
         {% for order in unpriced %}
-        <li class="bg-white rounded-xl border border-slate-200 p-4">
+        <li class="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
             <a href="{% url 'orders:detail' order.id %}" class="flex items-center justify-between gap-3">
                 <div class="min-w-0">
                     <div class="font-medium truncate">{{ order.order_number }} · {{ order.customer.name }}</div>
