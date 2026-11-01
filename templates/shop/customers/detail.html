@@ -40,6 +40,17 @@
     {% endif %}
 </div>
 
+<!-- Measurements: this customer's current numbers -->
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+    {% include "shop/customers/_measurement_list.html" with rows=customer.measurement.measured %}
+    {% if not customer.measurement %}
+    <p class="text-sm text-slate-500">
+        No measurements on file. Add them from <span class="font-medium">Edit</span> — orders
+        placed afterwards will keep their own copy.
+    </p>
+    {% endif %}
+</div>
+
 <!-- Orders -->
 <div class="bg-white rounded-2xl border border-slate-200 p-5">
     <div class="flex items-center justify-between mb-4">
@@ -55,14 +66,12 @@
             <div class="flex items-center justify-between">
                 <div>
                     <div class="font-medium">{{ order.order_number }}</div>
-                    <div class="text-sm text-slate-500">{{ order.get_service_type_display }} · ₹{{ order.total|floatformat:2 }}</div>
+                    <div class="text-sm text-slate-500">{{ order.get_service_type_display }} · {% if order.is_priced %}₹{{ order.total|floatformat:2 }}{% else %}Amount TBD{% endif %}</div>
                 </div>
                 <div class="text-right">
                     <span class="inline-block px-2 py-1 rounded-full text-xs font-medium
                         {% if order.stage == 'measurement' %}bg-blue-50 text-blue-700
-                        {% elif order.stage == 'cutting' %}bg-orange-50 text-orange-700
                         {% elif order.stage == 'stitching' %}bg-purple-50 text-purple-700
-                        {% elif order.stage == 'fitting' %}bg-teal-50 text-teal-700
                         {% elif order.stage == 'ready' %}bg-emerald-50 text-emerald-700
                         {% elif order.stage == 'delivered' %}bg-indigo-50 text-indigo-700
                         {% elif order.stage == 'cancelled' %}bg-red-50 text-red-700

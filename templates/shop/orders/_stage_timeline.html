@@ -15,7 +15,12 @@
             {% else %}•{% endif %}
         </div>
         <div class="flex-1 pt-1">
-            <div class="font-medium">{{ h.get_to_stage_display }}</div>
+            {# capfirst: "cutting"/"fitting" rows predate the four-stage model so #}
+            {# they are no longer in OrderStage.choices and get_to_stage_display #}
+            {# falls back to the raw slug; capfirst restores "Cutting" and is a #}
+            {# no-op for stages that still carry a label. The emoji branches above #}
+            {# stay deliberately - Stage History is an audit trail of what happened. #}
+            <div class="font-medium">{{ h.get_to_stage_display|capfirst }}</div>
             <div class="text-xs text-slate-500">
                 {{ h.changed_at|date:"d M Y, H:i" }} · by {{ h.changed_by.username|default:"system" }}
                 {% if h.note %} · {{ h.note }}{% endif %}

@@ -16,25 +16,32 @@
 <div class="grid grid-cols-3 gap-3 mb-4 text-center">
     <div class="bg-slate-50 rounded-xl border border-slate-200 px-2 py-3">
         <div class="text-[11px] text-slate-500 uppercase tracking-wider">Total</div>
-        <div class="font-bold">₹{{ order.total|floatformat:2 }}</div>
+        <div class="font-bold">{% if order.is_priced %}₹{{ order.total|floatformat:2 }}{% else %}—{% endif %}</div>
     </div>
     <div class="bg-slate-50 rounded-xl border border-slate-200 px-2 py-3">
         <div class="text-[11px] text-slate-500 uppercase tracking-wider">Paid</div>
         <div class="font-bold text-emerald-700">₹{{ paid|floatformat:2 }}</div>
     </div>
     <div class="rounded-xl border px-2 py-3
-        {% if balance > 0 %}bg-red-50 border-red-200
+        {% if not order.is_priced %}bg-slate-50 border-slate-200
+        {% elif balance > 0 %}bg-red-50 border-red-200
         {% elif balance < 0 %}bg-amber-50 border-amber-200
         {% else %}bg-emerald-50 border-emerald-200{% endif %}">
         <div class="text-[11px] text-slate-500 uppercase tracking-wider">Balance</div>
         <div class="font-bold
-            {% if balance > 0 %}text-red-700
+            {% if not order.is_priced %}text-slate-400
+            {% elif balance > 0 %}text-red-700
             {% elif balance < 0 %}text-amber-700
-            {% else %}text-emerald-700{% endif %}">₹{{ balance|floatformat:2 }}</div>
+            {% else %}text-emerald-700{% endif %}">
+            {% if order.is_priced %}₹{{ balance|floatformat:2 }}{% else %}TBD{% endif %}</div>
     </div>
 </div>
 
-{% if balance < 0 %}
+{% if not order.is_priced %}
+<div class="mb-4 px-4 py-3 rounded-lg bg-slate-50 text-slate-600 text-sm border border-slate-200">
+    💬 Amount TBD · ₹{{ paid|floatformat:2 }} collected so far. The balance appears once a total is set.
+</div>
+{% elif balance < 0 %}
 <div class="mb-4 px-4 py-3 rounded-lg bg-amber-50 text-amber-800 text-sm border border-amber-200">
     ⚠️ Overpaid — please verify or refund the excess.
 </div>
@@ -50,7 +57,13 @@
     <div class="flex items-center justify-between bg-slate-50 rounded-xl border border-slate-200 px-3 py-2.5">
         <div>
             <span class="font-bold">₹{{ p.amount|floatformat:2 }}</span>
-            <span class="ml-2 text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">{{ p.get_mode_display }}</span>
+            <!-- Why the kind leads: an advance and a hand-over payment are the
+                 same rupees and different events, and the owner reads the ledger
+                 to remember which. The delivery line only appears when there is
+                 one to name -- an advance has no hand-over to point at. -->
+            <span class="ml-2 text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{{ p.get_kind_display }}</span>
+            <span class="ml-1 text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">{{ p.get_mode_display }}</span>
+            {% if p.delivery %}<div class="text-xs text-slate-500 mt-0.5">📦 against delivery of {{ p.delivery.delivered_on|date:"d M Y" }}</div>{% endif %}
             {% if p.note %}<div class="text-xs text-slate-500 mt-0.5">{{ p.note }}</div>{% endif %}
         </div>
         <div class="text-right text-xs text-slate-500">
@@ -70,6 +83,9 @@
       class="border-t border-slate-200 pt-4">
     {% csrf_token %}
     <div class="text-sm font-medium text-slate-700 mb-2">Record payment</div>
+    {% if payment_form.non_field_errors %}
+    <div class="mb-2 text-xs text-red-600">{{ payment_form.non_field_errors.0 }}</div>
+    {% endif %}
     {% if payment_form.amount.errors %}
     <div class="mb-2 text-xs text-red-600">{{ payment_form.amount.errors.0 }}</div>
     {% endif %}
@@ -80,6 +96,36 @@
             + Record
         </button>
     </div>
+
+    <!-- Why a picker rather than a free-text box: the client asked for both
+         "any advance while given a order" and "a partial amount one each
+         delivery". Same card, same ledger — only the reason differs. Advance
+         is pre-selected because it is the common case and it needs no second
+         decision from whoever is standing at the counter. -->
+    <div class="mt-3">
+        <div class="text-[11px] text-slate-500 uppercase tracking-wider mb-1">Type</div>
+        <div class="flex flex-wrap gap-2">
+            {% for value, label in payment_form.kind.field.choices %}
+            <label class="border border-slate-300 rounded-xl px-3 py-2 text-xs cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">
+                <input type="radio" name="kind" value="{{ value }}" class="sr-only"
+                       {% if value == payment_form.kind.value|default:'advance' %}checked{% endif %}>
+                <span class="font-medium">{{ label }}</span>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Always rendered, even for an advance, so the form survives an HTMX
+         error round-trip without a reload. Only "Against delivery" may use it;
+         the Form and the view both enforce that. -->
+    <div class="mt-3">
+        <div class="text-[11px] text-slate-500 uppercase tracking-wider mb-1">Against delivery (only for that type)</div>
+        {{ payment_form.delivery }}
+        {% if payment_form.delivery.errors %}
+        <div class="mt-1 text-xs text-red-600">{{ payment_form.delivery.errors.0 }}</div>
+        {% endif %}
+    </div>
+
     <div class="flex flex-wrap gap-2 mt-3">
         {% for value, label in payment_modes %}
         <label class="border border-slate-300 rounded-xl px-4 py-2.5 text-sm cursor-pointer has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50">

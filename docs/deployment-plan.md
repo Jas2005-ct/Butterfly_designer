@@ -266,6 +266,12 @@ Prefer Secrets Manager over plain environment values: switch the container
 `environment` entries to `secrets=[{name=DJANGO_SECRET_KEY,valueFrom=arn:aws:secretsmanager:...}]`.
 
 ### 6.5 Run migrations as a one-off task
+
+> **Now automated.** `deploy.yml` runs this exact task as its step 2, against
+> the release image, and fails the release if the container's `exitCode` is not
+> 0. The commands below stay documented as the break-glass path for the rare
+> migration you must apply by hand.
+
 ```powershell
 $svc = aws ecs describe-services --cluster default --services butterfly-designer --region ap-south-1 --output json | ConvertFrom-Json
 $td  = $svc.services[0].taskDefinition
@@ -296,8 +302,9 @@ python manage.py createsuperuser
 
 ### 6.7 Deploy order for later releases
 1. Push to `master` -> CI builds and pushes a new image to ECR.
-2. Run the migration one-off task against the **new** image.
-3. Update the service to the new image (canary).
+2. Dispatch `deploy.yml` with that commit SHA. It **runs the migration one-off
+   task itself (step 2)** and only proceeds if the container exits 0.
+3. The same dispatch updates the service to the new image (canary).
 4. Verify.
 
 Doing migrations first means the canary never serves a schema-mismatched app.

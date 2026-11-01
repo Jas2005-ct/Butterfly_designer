@@ -6,16 +6,20 @@ from orders.models import Order, OrderStage
 def track_order(request, token):
     """Public order tracking page — no login required."""
     order = get_object_or_404(
-        Order.objects.select_related("customer").prefetch_related("stage_history__changed_by"),
+        Order.objects.select_related("customer").prefetch_related(
+            "stage_history__changed_by",
+            # The customer's "what has been handed over so far" panel reads
+            # both of these, and this page has no login to slow down anyway.
+            "items",
+            "deliveries__lines__order_item",
+        ),
         track_token=token,
     )
 
     # Build milestone data for the chart
     stage_order = [
         OrderStage.MEASUREMENT,
-        OrderStage.CUTTING,
         OrderStage.STITCHING,
-        OrderStage.FITTING,
         OrderStage.READY,
         OrderStage.DELIVERED,
     ]

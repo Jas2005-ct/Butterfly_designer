@@ -38,17 +38,40 @@
         </div>
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Total</div>
-            <div class="font-bold text-lg text-indigo-700">₹{{ order.total|floatformat:2 }}</div>
+            <div class="font-bold text-lg {% if order.is_priced %}text-indigo-700{% else %}text-slate-400{% endif %}">
+                {% if order.is_priced %}₹{{ order.total|floatformat:2 }}{% else %}Total not set{% endif %}
+            </div>
         </div>
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Material Cost</div>
-            <div class="font-medium">{{ order.material_cost|default:"—" }}</div>
+            {# `is not None` rather than the default filter: Decimal("0") is #}
+            {# falsy, so `|default:"—"` showed an em dash for a genuine zero #}
+            {# - which is exactly the "unset vs free" confusion the optional #}
+            {# total already had to fix. #}
+            <div class="font-medium">
+                {% if order.material_cost is not None %}₹{{ order.material_cost|floatformat:2 }}{% else %}—{% endif %}
+            </div>
         </div>
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Promised</div>
             <div class="font-medium">{{ order.promised_date|date:"d M Y"|default:"—" }}</div>
         </div>
     </div>
+
+    {% if order.total_quantity %}
+    <div class="border-t border-slate-200 pt-4">
+        <div class="flex flex-wrap items-baseline justify-between gap-2 mb-1.5">
+            <span class="text-xs text-slate-500 uppercase tracking-wider">Delivery progress</span>
+            <span class="text-sm font-medium text-indigo-700">
+                📦 {{ order.delivered_quantity }}/{{ order.total_quantity }} delivered
+            </span>
+        </div>
+        <div class="h-2.5 rounded-full bg-slate-100 overflow-hidden">
+            <div class="h-2.5 rounded-full bg-indigo-500 transition-all"
+                 style="width: {{ order.delivery_percent }}%"></div>
+        </div>
+    </div>
+    {% endif %}
 
     {% if order.description %}
     <div class="border-t border-slate-200 pt-4">
@@ -57,6 +80,66 @@
     </div>
     {% endif %}
 </div>
+
+{# Itemised lines. Hidden entirely when the order has none, because the #}
+{# editor is optional and an unlisted job should not grow an empty table. #}
+{% if order.items.all %}
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+    <h2 class="text-lg font-semibold mb-3">Items</h2>
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-left text-xs text-slate-500 uppercase tracking-wide">
+                <th class="pb-2 pr-2 font-medium">Item</th>
+                <th class="pb-2 pr-2 w-14 font-medium">Qty</th>
+                <th class="pb-2 pr-2 text-right w-20 font-medium">Unit ₹</th>
+                <th class="pb-2 pr-2 text-right w-24 font-medium">Line ₹</th>
+                <th class="pb-2 w-36 font-medium">Cloth</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in order.items.all %}
+            <tr class="border-t border-slate-100">
+                <td class="py-2 pr-2">{{ item.description }}</td>
+                <td class="py-2 pr-2">{{ item.quantity }}</td>
+                <td class="py-2 pr-2 text-right">{{ item.price|floatformat:2 }}</td>
+                <td class="py-2 pr-2 text-right font-medium">{{ item.line_total|floatformat:2 }}</td>
+                <td class="py-2">
+                    {% if item.material_source == 'customer' %}
+                    <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">
+                        Customer's cloth
+                    </span>
+                    {% else %}
+                    <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+                        Shop cloth
+                    </span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {# Worth spelling out: an order mixing both is exactly what the client #}
+    {# described, and per-line badges alone don't make it obvious. #}
+    <p class="text-xs text-slate-500 mt-3">Cloth: {{ order.material_source|capfirst }}</p>
+</div>
+{% endif %}
+
+{# Past hand-overs plus the form to record the next one. The partial guards #}
+{# itself on the order having line items. #}
+{% include "shop/orders/_deliveries.html" %}
+
+{# Only shown when something was measured, so saree alterations and other #}
+{# unmeasured orders don't grow an empty card. The note earns its place: #}
+{# these numbers are frozen and may differ from the customer's current ones, #}
+{# which otherwise reads as a bug. #}
+{% if order.measurement %}<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5 print:hidden">
+    <p class="text-sm text-slate-500 mb-3">
+        Measured when this order was taken — kept as a record, so it may differ
+        from the customer's current measurements.
+    </p>
+    {% include "shop/customers/_measurement_list.html" with rows=order.measurement.measured %}
+</div>
+{% endif %}
 
 <!-- Stage Buttons (HTMX partial) -->
 <div id="stage-buttons" class="mb-5 print:hidden">
@@ -91,7 +174,11 @@
     <table class="w-full text-sm mb-3">
         <tr class="border-b border-slate-200">
             <td class="py-1.5 font-bold">Total</td>
-            <td class="py-1.5 text-right font-bold">₹{{ order.total|floatformat:2 }}</td>
+            {# A receipt that printed ₹0.00 for a price nobody has agreed would #}
+            {# be a promise the shop never made, so it says so instead. #}
+            <td class="py-1.5 text-right font-bold">
+                {% if order.is_priced %}₹{{ order.total|floatformat:2 }}{% else %}To be confirmed{% endif %}
+            </td>
         </tr>
         {% for p in payments %}
         <tr class="border-b border-slate-100">
@@ -101,7 +188,9 @@
         {% endfor %}
         <tr>
             <td class="py-1.5 font-bold">Balance due</td>
-            <td class="py-1.5 text-right font-bold">₹{{ balance|floatformat:2 }}</td>
+            <td class="py-1.5 text-right font-bold">
+                {% if order.is_priced %}₹{{ balance|floatformat:2 }}{% else %}—{% endif %}
+            </td>
         </tr>
     </table>
     <p class="text-xs text-slate-600">Track this order: {{ request.scheme }}://{{ request.get_host }}{% url 'orders:track' order.track_token %}</p>

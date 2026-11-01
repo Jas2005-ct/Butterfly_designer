@@ -1,0 +1,24 @@
+{# Render measurements as a labelled grid. Expects `rows` - the list that #}
+{# MeasurementFields.measured() returns, i.e. (label, inches) pairs with #}
+{# unmeasured fields already dropped. #}
+{# #}
+{# Used for both a customer's live numbers and an order's frozen copy, which #}
+{# is why it lives here rather than in either app: the markup is identical. #}
+{# A customer or order with nothing measured renders nothing at all, so the #}
+{# including template needs no conditional of its own. #}
+
+{% if rows %}
+<div>
+    <h2 class="text-lg font-semibold mb-3">
+        Measurements <span class="text-sm font-normal text-slate-500">(inches)</span>
+    </h2>
+    <dl class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {% for label, value in rows %}
+        <div class="bg-slate-50 rounded-xl px-3 py-2.5">
+            <dt class="text-xs text-slate-500 uppercase tracking-wide">{{ label }}</dt>
+            <dd class="font-semibold text-slate-900">{{ value|floatformat:2 }}</dd>
+        </div>
+        {% endfor %}
+    </dl>
+</div>
+{% endif %}
