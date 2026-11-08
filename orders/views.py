@@ -14,12 +14,12 @@ from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_http_methods, require_POST
 
 from .models import (
+    ItemType,
     MaterialSource,
     Order,
     OrderItem,
     OrderStage,
     OrderStageHistory,
-    ServiceType,
 )
 from .services import (
     STAGE_EMOJI,
@@ -104,10 +104,11 @@ def _raw_item_rows(request):
 
     Returns:
         A list of dicts shaped like OrderItem for the row template, or None
-        when the five repeated field lists do not line up.
+        when the six repeated field lists do not line up.
     """
     lists = [
         request.POST.getlist("item_id"),
+        request.POST.getlist("item_type"),
         request.POST.getlist("item_description"),
         request.POST.getlist("item_quantity"),
         request.POST.getlist("item_price"),
@@ -116,7 +117,12 @@ def _raw_item_rows(request):
     if len({len(values) for values in lists}) != 1:
         return None
     return [
-        dict(zip(("id", "description", "quantity", "price", "material_source"), values))
+        dict(
+            zip(
+                ("id", "item_type", "description", "quantity", "price", "material_source"),
+                values,
+            )
+        )
         for values in zip(*lists)
     ]
 
@@ -160,7 +166,6 @@ def _order_form_context(
     if form_values is None:
         if order is None:
             form_values = {
-                "service_type": ServiceType.OTHER,
                 "description": "",
                 "total": "",
                 "material_cost": "",
@@ -173,7 +178,6 @@ def _order_form_context(
             # "None". Clearing a field and getting it back re-filled is the
             # same class of bug this helper exists to prevent.
             form_values = {
-                "service_type": order.service_type,
                 "description": order.description or "",
                 "total": "" if order.total is None else str(order.total),
                 "material_cost": "" if order.material_cost is None else str(order.material_cost),
@@ -187,7 +191,7 @@ def _order_form_context(
         item_rows = [None] if order is None else list(order.items.all()) + [None]
     context = {
         "order": order,
-        "service_choices": ServiceType.choices,
+        "item_type_choices": ItemType.choices,
         "form_values": form_values,
         "item_rows": item_rows,
         "material_choices": ITEM_MATERIAL_CHOICES,
@@ -229,44 +233,59 @@ def _parse_quantity(raw):
 def _items_from_post(request):
     """Read the line-item editor out of a submitted order form.
 
-    Rows reach the server as five parallel lists of repeated field names, so
+    Rows reach the server as six parallel lists of repeated field names, so
     they are zipped back together. A row whose id is unreadable is rejected
     rather than treated as new: quietly duplicating a line the staff already
     had would lose the original when the form is reconciled.
 
     Rows left completely blank are dropped rather than rejected - the editor
     ships with empty rows so staff can add another without hunting for a
-    button.
+    button. A row with a note but no chosen garment type is refused instead:
+    prose is not a garment, and guessing one would put the wrong badge on
+    the board.
 
     Args:
         request: the POST request.
 
     Returns:
         (items, error) - items is a list of dicts, each carrying id (None for
-        a new row), description, quantity, price and material_source, ready
-        to hand to the ORM. error is None, or a message naming the row that
-        needs fixing.
+        a new row), item_type, description, quantity, price and
+        material_source, ready to hand to the ORM. error is None, or a
+        message naming the row that needs fixing.
     """
     ids = request.POST.getlist("item_id")
+    types = request.POST.getlist("item_type")
     descriptions = request.POST.getlist("item_description")
     quantities = request.POST.getlist("item_quantity")
     prices = request.POST.getlist("item_price")
     sources = request.POST.getlist("item_material")
 
     # zip() would truncate to the shortest list, silently dropping whatever
-    # the extra rows carried. Every row contributes all five inputs, so
-    # uneven counts mean the form came back mangled and it is safer to say so
-    # than to save a plausible-looking subset.
-    if len({len(ids), len(descriptions), len(quantities), len(prices), len(sources)}) > 1:
+    # the extra rows carried. Every row contributes all six inputs, so
+    # uneven counts mean the form came back mangled - often a page rendered
+    # before the garment dropdown shipped, which a reload fixes - and it is
+    # safer to say so than to save a plausible-looking subset.
+    if len(
+        {len(ids), len(types), len(descriptions), len(quantities), len(prices), len(sources)}
+    ) > 1:
         return None, "The item rows came back incomplete - please reload and try again."
 
     items = []
-    for index, (row_id, description, quantity_raw, price_raw, source) in enumerate(
-        zip(ids, descriptions, quantities, prices, sources), start=1
+    for index, (row_id, item_type, description, quantity_raw, price_raw, source) in enumerate(
+        zip(ids, types, descriptions, quantities, prices, sources), start=1
     ):
+        item_type = item_type.strip()
         description = description.strip()
-        if not description:
-            continue  # an untouched blank row
+        if not item_type and not description:
+            continue  # an untouched blank row: no type chosen, nothing typed
+
+        if not item_type:
+            return None, f"Item {index}: choose what is being made."
+        if item_type not in ItemType.values:
+            return None, f"Item {index}: unknown garment type."
+        # How the errors below name this row: the note when there is one,
+        # otherwise the garment - "Item 1 (Blouse):" beats "Item 1 ():".
+        row_name = description or ItemType(item_type).label
 
         try:
             item_id = int(row_id) if row_id else None
@@ -275,9 +294,9 @@ def _items_from_post(request):
 
         quantity, quantity_error = _parse_quantity(quantity_raw)
         if quantity_error:
-            return None, f"Item {index} ({description}): {quantity_error}"
+            return None, f"Item {index} ({row_name}): {quantity_error}"
 
-        price, price_error = _parse_money(price_raw, f"Item {index} ({description}) price")
+        price, price_error = _parse_money(price_raw, f"Item {index} ({row_name}) price")
         if price_error:
             return None, price_error
         # Blank means free, not NULL. The column is not nullable, and a
@@ -286,11 +305,12 @@ def _items_from_post(request):
         price = price if price is not None else Decimal("0")
 
         if source not in (MaterialSource.SHOP, MaterialSource.CUSTOMER):
-            return None, f"Item {index} ({description}): unknown material source."
+            return None, f"Item {index} ({row_name}): unknown material source."
 
         items.append(
             {
                 "id": item_id,
+                "item_type": item_type,
                 "description": description,
                 "quantity": quantity,
                 "price": price,
@@ -324,6 +344,7 @@ def _apply_items(order, items):
 
     for item in items:
         fields = {
+            "item_type": item["item_type"],
             "description": item["description"],
             "quantity": item["quantity"],
             "price": item["price"],
@@ -342,69 +363,14 @@ BOARD_COLUMN_CAP = 10
 # What a line item's material dropdown offers. MIXED is excluded: it is only
 # ever a description of a whole order, never something staff pick for one
 # line. Written as pairs because a TextChoices member is a str subclass, so
-# looping it in a template would unpack the word "shop" into s-h-o-p.
+# looping it in a template would unpack the word "shop" into s-h-o-p. The
+# labels are deliberately the short "Shop"/"Customer": the full wording
+# ("Shop supplies") is what made these chips wrap onto a second row in the
+# narrow side panel.
 ITEM_MATERIAL_CHOICES = [
-    (MaterialSource.SHOP.value, MaterialSource.SHOP.label),
-    (MaterialSource.CUSTOMER.value, MaterialSource.CUSTOMER.label),
+    (MaterialSource.SHOP.value, "Shop"),
+    (MaterialSource.CUSTOMER.value, "Customer"),
 ]
-
-
-def _delivery_lines_from_post(request, order):
-    """Read the record-delivery form into (item, quantity) pairs.
-
-    Every ordered item gets a box, and staff fill in only the ones going out
-    today - "2 of the 10 blouses" is the normal case, so a blank or zero box
-    means *not in this visit* rather than an error. Anything typed that is
-    not a positive whole number is refused, because guessing at a count of
-    pieces already handed over is how a delivery record stops matching the
-    shelf.
-
-    Rows are matched against `order.items` rather than fetched by id alone:
-    a hand-crafted POST must not be able to attach another customer's line
-    to this delivery.
-
-    Args:
-        request: the POST request.
-        order: the Order whose items are eligible.
-
-    Returns:
-        (pairs, error) - pairs is a list of (OrderItem, int) ready for
-        record_delivery, or None when error carries a user-facing message.
-    """
-    item_ids = request.POST.getlist("item_id")
-    quantities = request.POST.getlist("quantity")
-
-    if len(item_ids) != len(quantities):
-        return None, "The delivery form came back incomplete - please reload."
-
-    wanted = {}
-    for raw_id, raw_quantity in zip(item_ids, quantities):
-        if not (raw_id or "").strip():
-            continue
-        raw_quantity = (raw_quantity or "").strip()
-        if raw_quantity in ("", "0"):
-            continue  # untouched: this line is not part of the visit
-        try:
-            quantity = int(raw_quantity)
-        except ValueError:
-            return None, f'Quantity "{raw_quantity}" is not a whole number.'
-        if quantity < 1:
-            return None, "A delivery must hand over at least one piece."
-        try:
-            item_id = int(raw_id)
-        except ValueError:
-            return None, "The delivery form came back unreadable - please reload."
-        wanted[item_id] = quantity
-
-    if not wanted:
-        return None, "Enter how many of each item are being handed over."
-
-    found = {item.id: item for item in order.items.filter(id__in=wanted)}
-    if set(wanted) - set(found):
-        # An id that resolves to nothing, or to another order's line.
-        return None, "That line does not belong to this order - please reload."
-
-    return [(found[item_id], wanted[item_id]) for item_id in wanted], None
 
 
 def _stage_button_context(order, user):
@@ -617,7 +583,6 @@ def _board_context(request, params):
         "view_mode": view_mode,
         "show_all": show_all,
         "counts": counts,
-        "service_choices": ServiceType.choices,
         "total_orders": total_orders,
     }
 
@@ -718,7 +683,6 @@ def order_create(request):
         # Raw values, kept whole so a rejected POST can be shown back intact.
         # Nothing here reaches the DB until every field has passed.
         form_values = {
-            "service_type": request.POST.get("service_type") or ServiceType.OTHER,
             "description": (request.POST.get("description") or "").strip(),
             # No `or "0"`: a blank box must reach _parse_money as blank, so it
             # stays None. Coercing to "0" here would record an order as agreed
@@ -745,8 +709,6 @@ def order_create(request):
         items, items_error = _items_from_post(request)
         if items_error:
             field_errors["item_rows"] = items_error
-        if form_values["service_type"] not in ServiceType.values:
-            field_errors["service_type"] = "Invalid service type."
         if not (customer_id or (customer_name and customer_phone)):
             field_errors["customer"] = (
                 "Select an existing customer, or enter a name and phone for a new one."
@@ -786,7 +748,6 @@ def order_create(request):
         try:
             order = Order.objects.create(
                 customer=customer,
-                service_type=form_values["service_type"],
                 description=form_values["description"],
                 total=total,
                 material_cost=material_cost or None,
@@ -836,6 +797,17 @@ def order_create(request):
     )
 
 
+def _delivery_recordable(order):
+    """Whether the Deliveries card may still offer the hand-over button.
+
+    One flag for the card and for every HTMX response that re-renders it: a
+    visit is only possible for a Ready order that still has pieces out
+    (deliveries are full visits, so "something to hand over" is exactly
+    this). An order already closed shows its history without a button.
+    """
+    return order.stage == OrderStage.READY and order.remaining_quantity > 0
+
+
 def _order_detail_context(request, order, extra=None):
     """Build the full order-page context for the detail view and its errors.
 
@@ -857,38 +829,10 @@ def _order_detail_context(request, order, extra=None):
     context = {"order": order, "shop": About.objects.first()}
     context.update(_detail_status_context(order, request.user))
     context.update(payment_section_context(order))
-    context["delivery_rows"] = [{"item": item, "typed": ""} for item in order.items.all()]
+    context["delivery_recordable"] = _delivery_recordable(order)
     if extra:
         context.update(extra)
     return context
-
-
-def _typed_delivery_rows(request, order):
-    """Map each ordered line to the count staff typed, for redisplay.
-
-    Why not reuse the parsed rows: parsing is exactly what fails, so the
-    typed strings go back on screen unvalidated - one bad count must not
-    blank the row that was right. Values here are never saved; they exist
-    only to be shown.
-
-    Args:
-        request: the failed POST.
-        order: the Order whose lines the form listed.
-
-    Returns:
-        List of {"item": OrderItem, "typed": str} shaped for _deliveries.html.
-    """
-    typed = {}
-    for raw_id, raw_quantity in zip(
-        request.POST.getlist("item_id"), request.POST.getlist("quantity")
-    ):
-        item_id = (raw_id or "").strip()
-        if item_id:
-            typed[item_id] = raw_quantity or ""
-    return [
-        {"item": item, "typed": typed.get(str(item.id), "")}
-        for item in order.items.all()
-    ]
 
 
 def _delivery_form_values(request):
@@ -922,24 +866,33 @@ def order_detail(request, order_id):
 @login_required
 @require_POST
 def order_delivery_add(request, order_id):
-    """POST: record one hand-over visit, then return to the order page.
+    """POST: record the one full hand-over visit, then return to the page.
 
-    Deliberately a full round trip rather than an HTMX partial swap: the last
-    delivery can move the stage, which changes the stepper, the stage buttons,
-    the timeline, the progress bar and the board card all at once. One reload
-    refreshes every one of them; a partial response would have to name each
-    target and would go stale the next time the page gains a panel.
+    Deliberately a full round trip rather than an HTMX partial swap: the
+    visit always closes the order, which changes the stepper, the stage
+    buttons, the timeline, the progress bar and the board card all at once.
+    One reload refreshes every one of them; a partial response would have to
+    name each target and would go stale the next time the page gains a panel.
 
-    A refused POST answers 400 with the page re-rendered and every typed
-    count, the date and the note back on screen - same contract as the order
-    create form. The redirects this replaces landed on a fresh page whose
-    form was blank: a mistyped count dropped the other two counts, the date
-    and the note, on the very form whose whole value is what was typed.
+    Why the view builds the lines instead of reading what was posted: the
+    form no longer carries per-item count boxes (partial visits are gone),
+    so "what is going out today" is by definition everything the order still
+    owes, and the order itself is the only honest source for that. A POST
+    that smuggles quantity fields is simply ignored; the service still
+    refuses anything that is not exactly what remains.
+
+    A refused POST answers 400 with the page re-rendered and the date and the
+    note back on screen - same contract as the order create form. The
+    redirects this replaces landed on a fresh page whose form was blank:
+    a mis-typed date dropped the note, on the form whose whole value is what
+    was typed.
     """
-    order = get_object_or_404(Order, id=order_id)
+    order = get_object_or_404(
+        Order.objects.prefetch_related("items__delivery_lines"), id=order_id
+    )
 
-    def refused(errors):
-        """Re-render the order page at 400 with the form as it was typed."""
+    def refused(delivery_errors):
+        """Re-render the order page at 400 with the date and note as typed."""
         return render(
             request,
             "shop/orders/detail.html",
@@ -947,19 +900,12 @@ def order_delivery_add(request, order_id):
                 request,
                 order,
                 extra={
-                    "delivery_rows": _typed_delivery_rows(request, order),
                     "delivery_form_values": _delivery_form_values(request),
-                    "delivery_errors": {
-                        key: message for key, message in errors.items() if message
-                    },
+                    "delivery_errors": delivery_errors,
                 },
             ),
             status=400,
         )
-
-    pairs, error = _delivery_lines_from_post(request, order)
-    if error:
-        return refused({"form": error})
 
     raw_date = (request.POST.get("delivered_on") or "").strip()
     if raw_date:
@@ -969,10 +915,16 @@ def order_delivery_add(request, order_id):
     else:
         delivered_on = timezone.localdate()
 
+    lines = [
+        (item, item.remaining_quantity)
+        for item in order.items.all()
+        if item.remaining_quantity > 0
+    ]
+
     try:
         record_delivery(
             order,
-            pairs,
+            lines,
             delivered_on=delivered_on,
             note=(request.POST.get("note") or "").strip(),
             recorded_by=request.user,
@@ -1012,13 +964,18 @@ def order_advance_stage(request, order_id):
         return render(request, "shop/orders/_stage_buttons.html", context, status=400)
 
     # Re-fetch for updated state. The response swaps the buttons inline
-    # and refreshes the stepper + timeline via out-of-band swaps.
+    # and refreshes the stepper + timeline + payments panel (the settle row
+    # belongs to the Delivery step, so the panel must arrive with it) and
+    # the deliveries card (the advance itself records the visit) via
+    # out-of-band swaps.
     order.refresh_from_db()
     context = {
         "order": order,
         "success": f"Stage updated to {order.get_stage_display()}",
+        "delivery_recordable": _delivery_recordable(order),
     }
     context.update(_detail_status_context(order, request.user))
+    context.update(payment_section_context(order))
     return render(request, "shop/orders/_stage_refresh.html", context)
 
 
@@ -1039,7 +996,6 @@ def order_edit(request, order_id):
         # Raw values as typed. The model is only written once every field has
         # passed, so `order` below is never left half-updated by a failure.
         form_values = {
-            "service_type": request.POST.get("service_type") or order.service_type,
             "description": (request.POST.get("description") or "").strip(),
             "total": request.POST.get("total"),
             "material_cost": request.POST.get("material_cost"),
@@ -1047,8 +1003,6 @@ def order_edit(request, order_id):
             "notes": (request.POST.get("notes") or "").strip(),
         }
         field_errors = {}
-        if form_values["service_type"] not in ServiceType.values:
-            field_errors["service_type"] = "Invalid service type."
         # Blank means "not agreed yet", not "keep whatever was there". The
         # total is optional now, and an edit form that silently refused to
         # clear a value would be the more surprising of the two readings.
@@ -1081,7 +1035,6 @@ def order_edit(request, order_id):
                 status=400,
             )
 
-        order.service_type = form_values["service_type"]
         order.description = form_values["description"]
         order.total = total
         order.material_cost = material_cost

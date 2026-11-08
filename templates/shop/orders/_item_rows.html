@@ -1,7 +1,7 @@
 {# Line-item editor, shared by the order create and edit forms. #}
 {# #}
-{# Expects `item_rows` (objects, or None for a blank row) and #}
-{# `material_choices`. Blank rows are skipped when the form is read back, so #}
+{# Expects `item_rows` (objects, or None for a blank row), `item_type_choices` #}
+{# and `material_choices`. Blank rows are skipped when the form is read back, so #}
 {# shipping one empty row makes the shape of the editor visible without staff #}
 {# having to press something first. #}
 {# #}
@@ -55,7 +55,7 @@
         addButton.addEventListener("click", function () {
             tbody.appendChild(template.content.cloneNode(true));
             var added = tbody.lastElementChild;
-            var firstField = added && added.querySelector("input[name=item_description]");
+            var firstField = added && added.querySelector("select[name=item_type]");
             if (firstField) firstField.focus();
             recalculate();
         });
@@ -87,26 +87,44 @@
                 if (hidden && checked) hidden.value = checked.value;
             });
         }
+        // One delegated listener for both pickers: rows are added and removed
+        // after this script runs, so per-row binding would be easy to forget.
+        // The note box belongs to "Other tailoring" only - hidden by the
+        // server on render and re-hidden here on every change, but never
+        // cleared, so a note typed earlier keeps posting (see _item_row).
         tbody.addEventListener("change", function (event) {
-            if (!event.target.closest || !event.target.closest("[data-material-picker]")) return;
-            syncMaterialPickers();
+            var target = event.target;
+            if (!target || !target.closest) return;
+
+            var select = target.closest("[data-item-type]");
+            if (select) {
+                var row = select.closest(".item-row");
+                var note = row && row.querySelector("[data-item-note]");
+                if (note) note.hidden = select.value !== "other";
+                recalculate();
+            }
+
+            if (target.closest("[data-material-picker]")) syncMaterialPickers();
         });
 
         function fieldValue(row, name) {
-            var input = row.querySelector("input[name=" + name + "]");
-            return input ? input.value : "";
+            // [name=...] rather than input[name=...]: the garment type is a
+            // <select>, and a selector that only matched inputs would read
+            // every row's type as blank.
+            var field = row.querySelector("[name=" + name + "]");
+            return field ? field.value : "";
         }
 
         // One figure, not one per row - it sits beside Total in the host form,
         // because that is the box it is there to inform. Mirrors
         // orders.services/_items_from_post exactly, so the hint never shows a
-        // number that disagrees with what gets saved: a row with no
-        // description is dropped server-side, so it counts zero here too; a
-        // blank quantity means one; an unparseable price is zero.
+        // number that disagrees with what gets saved: a row with neither a
+        // garment type nor a note is dropped server-side, so it counts zero
+        // here too; a blank quantity means one; an unparseable price is zero.
         function subtotal() {
             var sum = 0;
             Array.prototype.forEach.call(tbody.querySelectorAll(".item-row"), function (row) {
-                if (!fieldValue(row, "item_description").trim()) return;
+                if (!fieldValue(row, "item_type").trim() && !fieldValue(row, "item_description").trim()) return;
                 var quantity = parseFloat(fieldValue(row, "item_quantity"));
                 var price = parseFloat(fieldValue(row, "item_price"));
                 if (isNaN(quantity) || quantity < 1) quantity = 1;

@@ -6,7 +6,8 @@ from django.test import TestCase
 from django.urls import reverse
 
 from customers.models import Customer
-from orders.models import Delivery, Order, OrderStage
+from orders.models import Delivery, Order, OrderItem, OrderStage
+from orders.services import record_delivery
 from .forms import PaymentForm
 from .models import Payment, PaymentKind, PaymentMode
 from .services import annotate_balances, order_balance, record_payment, total_paid
@@ -553,3 +554,143 @@ class DeliveryPaymentTests(TestCase):
         response = self.client.get(reverse("orders:detail", args=[order.id]))
         self.assertContains(response, "500.00")
         self.assertContains(response, "Amount TBD")
+
+
+class BalanceSettleTests(TestCase):
+    """The one-tap settle row: money becomes a button at the hand-over.
+
+    From the client: "if a customer gave 5 blouse and 1 chudi, they mostly
+    deliver at one time" - so the moment an order reaches the Delivery stage
+    with money still due, the payments panel answers with the due amount and
+    one button per mode of taking it. The settle is real money: the amount
+    is recomputed at the POST (a stale screen never over-collects), and a
+    tap is never a gate - the panel simply says so when nothing is left.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="mgr", password="secret123")
+        self.client.login(username="mgr", password="secret123")
+        self.customer = Customer.objects.create(name="Priya", phone="9876543210")
+
+    def make_order(self, **overrides):
+        """A priced order sitting in the Delivery stage by default."""
+        fields = {
+            "customer": self.customer,
+            "stage": OrderStage.DELIVERED,
+            "total": Decimal("500.00"),
+        }
+        fields.update(overrides)
+        return Order.objects.create(**fields)
+
+    def url(self, order):
+        return reverse("billing:order_settle_balance", args=[order.id])
+
+    def test_the_row_waits_for_the_delivery_stage(self):
+        """Working-stage dues live on the dues report and the badges; the
+        counter row appears exactly when the shop starts handing over."""
+        order = self.make_order(stage=OrderStage.STITCHING)
+        before = self.client.get(reverse("orders:detail", args=[order.id]))
+        self.assertNotContains(before, "/settle/")
+
+        order.stage = OrderStage.DELIVERED
+        order.save()
+        after = self.client.get(reverse("orders:detail", args=[order.id]))
+        self.assertContains(after, "/settle/")
+        self.assertContains(after, "Balance due ₹500.00")
+        self.assertContains(after, "receive it now, all at once")
+
+    def test_tapping_cash_records_the_exact_due(self):
+        order = self.make_order()
+        response = self.client.post(self.url(order), {"mode": "cash"})
+        self.assertEqual(order.payments.count(), 1)
+        payment = order.payments.get()
+        self.assertEqual(payment.amount, Decimal("500.00"))
+        self.assertEqual(payment.mode, PaymentMode.CASH)
+        # No hand-over exists for this order, so Advance is the only honest
+        # type for money taken without one.
+        self.assertEqual(payment.kind, PaymentKind.ADVANCE)
+        self.assertIsNone(payment.delivery)
+        self.assertRedirects(
+            response,
+            reverse("orders:detail", args=[order.id]) + "#order-payments",
+        )
+
+    def test_a_tap_settles_the_balance_of_now_not_the_stale_screen(self):
+        """The worker sees the panel showing ₹500 due; before her tap is
+        recorded, another window takes ₹200. What is collected is what is
+        STILL left, not what the stale screen showed."""
+        order = self.make_order()
+        # Render the panel (stale figure in hand), record elsewhere, settle.
+        self.client.get(reverse("orders:detail", args=[order.id]))
+        record_payment(order, "200.00", PaymentMode.UPI, self.user)
+        self.client.post(self.url(order), {"mode": "cash"})
+        self.assertEqual(total_paid(order), Decimal("500.00"))
+        self.assertEqual(order_balance(order), Decimal("0"))
+        self.assertEqual(
+            order.payments.filter(amount=Decimal("300.00")).count(), 1
+        )
+
+    def test_money_at_a_handover_names_that_handover(self):
+        """Against-delivery is exactly what a counter payment is, and the
+        visit named is the one just made - the ledger must say whose
+        hand-over absorbed the money."""
+        order = self.make_order(stage=OrderStage.READY)
+        item = OrderItem.objects.create(order=order, quantity=1)
+        record_delivery(order, [(item, 1)])
+        order.refresh_from_db()
+        # The full visit closed the order on its own.
+        self.assertEqual(order.stage, OrderStage.DELIVERED)
+        self.client.post(self.url(order), {"mode": "upi"})
+        payment = order.payments.get()
+        self.assertEqual(payment.kind, PaymentKind.DELIVERY)
+        self.assertEqual(payment.delivery, order.deliveries.get())
+
+    def test_the_tap_swaps_the_settled_panel_in_place(self):
+        """With the page's own script running, the answer is the refreshed
+        panel itself - the counter never loses its scroll to a reload."""
+        order = self.make_order()
+        response = self.client.post(
+            self.url(order), {"mode": "cash"}, headers={"hx-request": "true"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "received in Cash")
+        self.assertContains(response, "Paid in full.")
+        # Settled: the row is gone; the manual form below it remains.
+        self.assertNotContains(response, "/settle/")
+
+    def test_a_second_tap_after_settlement_records_nothing(self):
+        """Double-tap safety: the second tap finds nothing owed and answers
+        in words rather than charging twice."""
+        order = self.make_order()
+        record_payment(order, "500", PaymentMode.CASH, self.user)
+        response = self.client.post(self.url(order), {"mode": "cash"}, follow=True)
+        self.assertEqual(order.payments.count(), 1)
+        self.assertContains(response, "Nothing left to settle.")
+
+    def test_an_unrecognised_mode_is_refused(self):
+        """Unreachable from the rendered buttons; pinned so a hand-built
+        POST cannot invent a mode the ledger would keep forever."""
+        order = self.make_order()
+        response = self.client.post(
+            self.url(order), {"mode": "cheque"}, headers={"hx-request": "true"}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(
+            response, "Choose how the money arrived.", status_code=400
+        )
+        self.assertEqual(order.payments.count(), 0)
+
+    def test_an_unpriced_order_neither_offers_nor_balks(self):
+        """Amount TBD is "not agreed yet": no button is offered, and a direct
+        POST is answered politely rather than recording a guess."""
+        order = self.make_order(total=None)
+        page = self.client.get(reverse("orders:detail", args=[order.id]))
+        self.assertNotContains(page, "/settle/")
+        settled = self.client.post(self.url(order), {"mode": "cash"}, follow=True)
+        self.assertEqual(order.payments.count(), 0)
+        self.assertContains(settled, "Nothing left to settle.")
+
+    def test_get_is_refused(self):
+        order = self.make_order()
+        response = self.client.get(self.url(order))
+        self.assertEqual(response.status_code, 405)

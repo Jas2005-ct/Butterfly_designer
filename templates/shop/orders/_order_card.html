@@ -6,11 +6,16 @@
         <div class="text-sm text-slate-500 truncate">{{ order.customer.name }}</div>
         <div class="text-xs text-slate-400">{{ order.customer.phone }}</div>
         <div class="mt-2 flex items-center justify-between text-xs">
+            {# The badge is the first line's garment; an unitemised order #}
+            {# has no garment to name, so the pill disappears - and ml-auto #}
+            {# keeps the date on the right either way. #}
+            {% if order.item_type_display %}
             <span class="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700">
-                {{ order.get_service_type_display }}
+                {{ order.item_type_display }}
             </span>
+            {% endif %}
             {% if order.promised_date %}
-            <span class="text-slate-500">
+            <span class="ml-auto text-slate-500">
                 📅 {{ order.promised_date|date:"d M" }}
             </span>
             {% endif %}

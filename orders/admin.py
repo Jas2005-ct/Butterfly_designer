@@ -52,8 +52,11 @@ class OrderStageHistoryInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ("order_number", "customer", "service_type", "stage", "total", "promised_date", "created_at")
-    list_filter = ("stage", "service_type")
+    # service_type is gone - the garment lives on each line now (item_type),
+    # which a list_filter cannot reach across a relation, so the admin keeps
+    # filtering on stage only.
+    list_display = ("order_number", "customer", "stage", "total", "promised_date", "created_at")
+    list_filter = ("stage",)
     search_fields = ("order_number", "customer__name", "customer__phone")
     inlines = (OrderItemInline, OrderMeasurementInline, OrderStageHistoryInline)
 

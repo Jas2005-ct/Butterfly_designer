@@ -9,7 +9,7 @@ from django.utils import timezone
 from billing.models import Payment, PaymentMode
 from billing.services import record_payment
 from customers.models import Customer
-from orders.models import Order, OrderStage, ServiceType
+from orders.models import ItemType, Order, OrderItem, OrderStage
 from orders.services import advance_stage
 from . import services
 
@@ -131,15 +131,24 @@ class PipelineTests(TestCase):
         self.assertEqual(counts, {"delivered": 1, "cancelled": 0, "open": 1, "total": 2})
 
     def test_service_mix(self):
-        Order.objects.create(
-            customer=self.customer, service_type="blouse", total=Decimal("500.00")
-        )
-        Order.objects.create(
-            customer=self.customer, service_type="blouse", total=Decimal("700.00")
-        )
-        mix = {row["service"]: row for row in services.service_mix()}
+        for total in (Decimal("500.00"), Decimal("700.00")):
+            order = Order.objects.create(customer=self.customer, total=total)
+            OrderItem.objects.create(order=order, item_type=ItemType.BLOUSE)
+        mix = {row["type"]: row for row in services.service_mix()}
         self.assertEqual(mix["blouse"]["count"], 2)
         self.assertEqual(mix["blouse"]["revenue"], Decimal("1200.00"))
+
+    def test_service_mix_groups_an_order_by_its_first_line(self):
+        """The chart and the board badge must never disagree about what an
+        order is: both read the first line, so a later line cannot quietly
+        move the order into another bucket."""
+        order = Order.objects.create(customer=self.customer, total=Decimal("300.00"))
+        OrderItem.objects.create(order=order, item_type=ItemType.CHUDI)
+        OrderItem.objects.create(order=order, item_type=ItemType.BLOUSE)
+        mix = {row["type"]: row for row in services.service_mix()}
+        self.assertEqual(mix["chudi"]["count"], 1)
+        self.assertEqual(mix["chudi"]["revenue"], Decimal("300.00"))
+        self.assertNotIn("blouse", mix)
 
 
 class StuckOrdersTests(TestCase):
@@ -263,13 +272,16 @@ class UnpricedTotalTests(TestCase):
         self.assertEqual(result["profit"], Decimal("0.00"))
 
     def test_service_mix_counts_the_order_but_books_nothing(self):
+        """Unitemised orders have no type to read, but their booked revenue
+        is still booked revenue - one shared bucket, one honest count."""
         Order.objects.create(customer=self.customer, total=Decimal("700.00"))
         Order.objects.create(customer=self.customer)
-        row = next(
-            r for r in services.service_mix() if r["service"] == ServiceType.OTHER
-        )
-        self.assertEqual(row["count"], 2)
-        self.assertEqual(row["revenue"], Decimal("700.00"))
+        rows = services.service_mix()
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(rows[0]["type"])
+        self.assertEqual(rows[0]["label"], "Not itemised")
+        self.assertEqual(rows[0]["count"], 2)
+        self.assertEqual(rows[0]["revenue"], Decimal("700.00"))
 
     def test_top_customers_book_nothing_for_unpriced_work(self):
         Order.objects.create(customer=self.customer)

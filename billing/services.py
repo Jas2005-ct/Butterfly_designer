@@ -14,6 +14,8 @@ from decimal import Decimal, InvalidOperation
 from django.db.models import DecimalField, F, Sum
 from django.db.models.functions import Coalesce
 
+from orders.models import OrderStage
+
 from .forms import PaymentForm
 from .models import Payment, PaymentKind, PaymentMode
 
@@ -148,6 +150,7 @@ def payment_section_context(order):
     payments = (
         order.payments.select_related("recorded_by", "delivery").order_by("-created_at")
     )
+    balance = order_balance(order)
     return {
         "order": order,
         "payments": payments,
@@ -157,5 +160,17 @@ def payment_section_context(order):
         "payment_form": PaymentForm(order=order),
         "payment_modes": PaymentMode.choices,
         "paid": total_paid(order),
-        "balance": order_balance(order),
+        "balance": balance,
+        # Why can_settle waits for the stage: the one-tap settle row belongs
+        # to the hand-over moment - when the order has actually reached the
+        # Delivery stage and money is still due. Earlier stages show the
+        # plain summary only; a settled order, an overpaid one and an
+        # unpriced one (balance None, not 0) show no buttons. Nothing here
+        # blocks a stage move or a hand-over: the row is visibility, not a
+        # gate.
+        "can_settle": (
+            order.stage == OrderStage.DELIVERED
+            and balance is not None
+            and balance > 0
+        ),
     }
