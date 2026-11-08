@@ -57,7 +57,12 @@
 
     {% if user.is_authenticated %}
     <nav class="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 nav-safe-bottom z-40 print:hidden">
-        <div class="grid {% if user.profile.is_admin %}grid-cols-5{% else %}grid-cols-3{% endif %} text-[11px] sm:text-xs lg:text-sm font-medium text-slate-500">
+        {# No Dues tab here, deliberately: money is now recorded at the one #}
+        {# hand-over (the settle row on the order page), so there is nothing #}
+        {# a staff member can collect before delivery and the daily list #}
+        {# lost its job. The report itself stays up, reachable from the #}
+        {# analytics dashboard's "Open dues list" link. #}
+        <div class="grid {% if user.profile.is_admin %}grid-cols-4{% else %}grid-cols-2{% endif %} text-[11px] sm:text-xs lg:text-sm font-medium text-slate-500">
             <a href="{% url 'orders:board' %}"
                class="flex flex-col items-center justify-center gap-1 py-3 hover:text-indigo-600 {% if request.resolver_match.namespace == 'orders' %}text-indigo-600{% endif %}">
                 <span class="text-lg leading-none">&#128717;&#65039;</span> Orders
@@ -65,10 +70,6 @@
             <a href="{% url 'customers:list' %}"
                class="flex flex-col items-center justify-center gap-1 py-3 hover:text-indigo-600 {% if request.resolver_match.namespace == 'customers' %}text-indigo-600{% endif %}">
                 <span class="text-lg leading-none">&#128100;</span> Customers
-            </a>
-            <a href="{% url 'billing:dues' %}"
-               class="flex flex-col items-center justify-center gap-1 py-3 hover:text-indigo-600 {% if request.resolver_match.namespace == 'billing' %}text-indigo-600{% endif %}">
-                <span class="text-lg leading-none">&#128176;</span> Dues
             </a>
             {% if user.profile.is_admin %}
             <a href="{% url 'analytics:dashboard' %}"

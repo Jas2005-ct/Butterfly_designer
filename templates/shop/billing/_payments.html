@@ -37,6 +37,36 @@
     </div>
 </div>
 
+{# The hand-over moment. The order has reached Delivery with money due, so #}
+{# the panel answers with one-tap buttons: tapping one records exactly the #}
+{# balance of that instant (the view recomputes it, never trusting the #}
+{# rendered figure) in that mode - and leaves a ledger row naming the #}
+{# hand-over it was taken at. Rendered only when there is something to #}
+{# settle, and only OFF the page's own state, so nothing here blocks or #}
+{# prompts unless money actually waits. #}
+{% if can_settle %}
+<div class="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200">
+    <div class="flex items-baseline justify-between gap-2 mb-2">
+        <span class="text-sm font-bold text-red-700">Balance due ₹{{ balance|floatformat:2 }}</span>
+        <span class="text-xs text-red-600">receive it now, all at once</span>
+    </div>
+    <div class="flex flex-wrap gap-2">
+        {% for value, label in payment_modes %}
+        <form hx-post="{% url 'billing:order_settle_balance' order.id %}"
+              hx-target="#order-payments" hx-swap="innerHTML">
+            {% csrf_token %}
+            <input type="hidden" name="mode" value="{{ value }}">
+            <button type="submit"
+                    class="bg-slate-900 text-white font-bold px-4 py-3 rounded-xl hover:bg-indigo-600 transition-colors">
+                {{ label }}
+            </button>
+        </form>
+        {% endfor %}
+    </div>
+    <div class="mt-2 text-xs text-red-600">Partial amounts: use the form below.</div>
+</div>
+{% endif %}
+
 {% if not order.is_priced %}
 <div class="mb-4 px-4 py-3 rounded-lg bg-slate-50 text-slate-600 text-sm border border-slate-200">
     💬 Amount TBD · ₹{{ paid|floatformat:2 }} collected so far. The balance appears once a total is set.

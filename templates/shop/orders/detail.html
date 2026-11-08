@@ -34,7 +34,7 @@
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Service</div>
-            <div class="font-medium">{{ order.get_service_type_display }}</div>
+            <div class="font-medium">{{ order.item_type_display|default:"—" }}</div>
         </div>
         <div>
             <div class="text-xs text-slate-500 uppercase tracking-wider">Total</div>
@@ -99,7 +99,7 @@
         <tbody>
             {% for item in order.items.all %}
             <tr class="border-t border-slate-100">
-                <td class="py-2 pr-2">{{ item.description }}</td>
+                <td class="py-2 pr-2">{{ item.label }}</td>
                 <td class="py-2 pr-2">{{ item.quantity }}</td>
                 <td class="py-2 pr-2 text-right">{{ item.price|floatformat:2 }}</td>
                 <td class="py-2 pr-2 text-right font-medium">{{ item.line_total|floatformat:2 }}</td>
@@ -125,8 +125,12 @@
 {% endif %}
 
 {# Past hand-overs plus the form to record the next one. The partial guards #}
-{# itself on the order having line items. #}
-{% include "shop/orders/_deliveries.html" %}
+{# itself on the order having line items. The wrapper id lets the advance #}
+{# response swap this card out-of-band: the visit it just recorded changes #}
+{# exactly this card. #}
+<div id="order-deliveries">
+    {% include "shop/orders/_deliveries.html" %}
+</div>
 
 {# Only shown when something was measured, so saree alterations and other #}
 {# unmeasured orders don't grow an empty card. The note earns its place: #}
@@ -167,7 +171,7 @@
     <h3 class="font-bold mb-2">Order Receipt — {{ order.order_number }}</h3>
     <div class="text-sm space-y-1 mb-3">
         <p><strong>Customer:</strong> {{ order.customer.name }} · {{ order.customer.phone }}</p>
-        <p><strong>Date:</strong> {{ order.created_at|date:"d M Y" }} · <strong>Service:</strong> {{ order.get_service_type_display }}</p>
+        <p><strong>Date:</strong> {{ order.created_at|date:"d M Y" }} · <strong>Service:</strong> {{ order.item_type_display|default:"—" }}</p>
         {% if order.description %}<p><strong>Work:</strong> {{ order.description }}</p>{% endif %}
         <p><strong>Stage:</strong> {{ order.get_stage_display }} · <strong>Promised:</strong> {{ order.promised_date|date:"d M Y"|default:"—" }}</p>
     </div>

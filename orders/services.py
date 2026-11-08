@@ -122,6 +122,33 @@ def advance_stage(
     if (is_backward or is_cancel) and not note.strip():
         raise ValueError("Note is required for backward moves and cancellations")
 
+    # The Ready -> Delivered advance is also a hand-over: when pieces are
+    # still outstanding, record the full visit here, so an order the
+    # customer has taken home does not read "0 of 5 delivered" forever (on
+    # the card, the tracking page and in the payment ledger). The visit is
+    # recorded through record_delivery(), which performs this very stage
+    # move itself - so exactly one history row is written, by the close.
+    # Nothing outstanding (a bare order, or a vintage one whose pieces were
+    # recorded in earlier visits) advances with no visit, as before.
+    if from_stage == OrderStage.READY and to_stage == OrderStage.DELIVERED:
+        # A fresh instance does the recording: the incoming one may carry
+        # prefetch caches (the board prefetches deliveries__lines) that
+        # predate the rows this visit writes, and acting on a cached
+        # "nothing delivered" would re-trigger the record on itself.
+        fresh = Order.objects.get(pk=order.pk)
+        lines = [
+            (item, item.remaining_quantity)
+            for item in fresh.items.all()
+            if item.remaining_quantity > 0
+        ]
+        if lines:
+            record_delivery(fresh, lines, note=note, recorded_by=changed_by)
+            # The caller's instance keeps the contract the ordinary path
+            # gives it: stage already moved (the caller's board re-render
+            # and toast read it right after this returns).
+            order.stage = OrderStage.DELIVERED
+            return fresh.stage_history.order_by("id").last()
+
     with transaction.atomic():
         # Update order stage
         order.stage = to_stage
@@ -150,40 +177,51 @@ def record_delivery(
     note: str = "",
     recorded_by=None,
 ) -> Delivery:
-    """Record one hand-over visit, and close the order if it was the last of it.
+    """Record the one hand-over visit: everything still out leaves at once.
 
     Why the single choke point: over-delivery is the one mistake that cannot
-    be undone by correcting a number later — the pieces are already with the
+    be undone by correcting a number later - the pieces are already with the
     customer. Every path that hands work out (the form today, an API or an
     import later) has to pass through the same check, so it lives here
     rather than in a view.
 
+    Why full visits only: a counted form let one visit take part of an order,
+    so "2 -> 4 -> 2 -> 2" spread one hand-over over four records and every
+    record in between left pieces out with the customer while saying nothing
+    about the rest. The shop hands work over once, at the counter, all of
+    it - and the visit itself closes the order.
+
     Args:
-        order: Order receiving the hand-over.
-        lines: iterable of (OrderItem, quantity) pairs. Every item must
-            belong to `order`; every quantity must be at least 1 and no more
-            than what remains of that item across all previous deliveries.
+        order: Order receiving the hand-over. Deliveries are recorded only
+            while the order sits at Ready - earlier stages have not finished
+            the work, and after Delivery the pieces are already gone.
+        lines: iterable of (OrderItem, quantity) pairs covering exactly the
+            items that still have pieces outstanding, each handing over all
+            of them. Every item must belong to `order`.
         delivered_on: date of the visit as a datetime.date; defaults to
             today. Accepts None from a blank form field.
-        note: free text kept with the visit ("rest on Thursday").
+        note: free text kept with the visit ("sent via courier").
         recorded_by: User recording it; may be None for a system import.
 
     Returns:
         The created Delivery, with its lines attached.
 
     Raises:
-        ValueError: no lines given; a quantity below 1; an item belonging to
-            another order; or a quantity exceeding what remains undelivered
-            of that item.
+        ValueError: the order is not at Ready; no lines given; a quantity
+            below 1; one item listed twice; an item belonging to another
+            order; or a visit that would take anything less than everything
+            still outstanding.
     """
+    if order.stage != OrderStage.READY:
+        raise ValueError("Deliveries are recorded only once the order is Ready.")
+
     pairs = [(item, int(quantity)) for item, quantity in lines]
 
     if not pairs:
         raise ValueError("Add at least one item to this delivery.")
 
     # What has already gone out of this order, per item, in one query rather
-    # than one per line — the 2 -> 4 -> 2 -> 2 case is four visits, and this
-    # runs on every one of them.
+    # than one per line - the fill runs per item across every past visit.
     already = {
         row["order_item_id"]: row["delivered"]
         for row in DeliveryLine.objects.filter(order_item__order=order)
@@ -191,15 +229,37 @@ def record_delivery(
         .annotate(delivered=Sum("quantity"))
     }
 
+    remaining_of = {}
+    labels = {}
+    for item in order.items.all():
+        remaining_of[item.id] = item.quantity - already.get(item.id, 0)
+        labels[item.id] = item.label
+
+    handed_over = {}
     for item, quantity in pairs:
         if item.order_id != order.id:
             raise ValueError("That line does not belong to this order.")
         if quantity < 1:
             raise ValueError("A delivery must hand over at least one piece.")
-        remaining = item.quantity - already.get(item.id, 0)
-        if quantity > remaining:
+        if item.id in handed_over:
+            raise ValueError(f'"{item.label}" is listed twice in this visit.')
+        handed_over[item.id] = quantity
+
+    # Full visit: exactly every item with pieces still out, each at exactly
+    # what remains of it. A set mismatch (a line forgotten, or one added for
+    # an already-clear item) and a count mismatch (5 of 8) both break the
+    # visit, and the message says what a correct one looks like.
+    outstanding = {item_id: left for item_id, left in remaining_of.items() if left > 0}
+    if set(handed_over) != set(outstanding):
+        pieces = sum(outstanding.values())
+        raise ValueError(
+            f"Hand over all {pieces} outstanding pieces at once - "
+            "partial deliveries are no longer recorded."
+        )
+    for item_id, left in outstanding.items():
+        if handed_over[item_id] != left:
             raise ValueError(
-                f'Only {remaining} of "{item.description}" remain undelivered.'
+                f'"{labels[item_id]}" goes out complete - hand over all {left} of it.'
             )
 
     with transaction.atomic():
@@ -219,28 +279,24 @@ def record_delivery(
         # Re-read rather than trusting order.is_fully_delivered: the instance
         # may carry a prefetched deliveries cache that predates the rows just
         # written, and acting on a stale "nothing delivered" here would mean
-        # an order the customer has collected stays open forever.
+        # an order the customer has collected stays open forever. With full
+        # visits this now always fires (the visit is by definition the last
+        # one), but the total_quantity guard stands: an order with no lines
+        # has nothing outstanding and must never be swept to delivered (see
+        # Order.is_fully_delivered).
         delivered_now = (
             DeliveryLine.objects.filter(delivery__order=order)
             .aggregate(total=Sum("quantity"))["total"]
             or 0
         )
         total = order.total_quantity
-        # The total_quantity guard matters: an order with no lines has
-        # nothing outstanding and must never be swept to delivered (see
-        # Order.is_fully_delivered).
         if total > 0 and delivered_now >= total:
-            # Only when the lifecycle already permits the move. Staff may
-            # record deliveries against an order still in stitching, and
-            # skipping measurement -> stitching -> ready behind the rules'
-            # back would make the stage machine a suggestion.
-            if can_transition(order.stage, OrderStage.DELIVERED):
-                advance_stage(
-                    order,
-                    OrderStage.DELIVERED,
-                    changed_by=recorded_by,
-                    note="All pieces delivered.",
-                )
+            advance_stage(
+                order,
+                OrderStage.DELIVERED,
+                changed_by=recorded_by,
+                note="All pieces delivered.",
+            )
 
     return delivery
 
