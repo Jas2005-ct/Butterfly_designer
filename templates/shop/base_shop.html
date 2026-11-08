@@ -9,7 +9,8 @@
     <script src="{% static 'shop/js/htmx.min.js' %}"></script>
     <meta name="theme-color" content="#1e1b4b">
     <link rel="manifest" href="{% static 'shop/manifest.json' %}">
-    <link rel="apple-touch-icon" href="{% static 'shop/icons/icon-192.png' %}">
+    <link rel="icon" href="{% static 'shop/icons/favicon-32.png' %}" type="image/png">
+    <link rel="apple-touch-icon" href="{% static 'shop/icons/apple-touch-icon-180.png' %}">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -19,17 +20,19 @@
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
 
-    <header class="bg-slate-900 text-white px-4 sm:px-6 lg:px-10 py-3 flex items-center justify-between sticky top-0 z-40 print:hidden">
+    <header class="bg-indigo-700 text-white px-4 sm:px-6 lg:px-10 py-3 flex items-center justify-between sticky top-0 z-40 print:hidden">
         <div class="flex items-center gap-2">
-            <div class="w-9 h-9 rounded-full bg-indigo-50 flex items-center justify-center text-lg">&#129419;</div>
+            <div class="w-9 h-9 rounded-full bg-white/15 flex items-center justify-center overflow-hidden">
+                <img src="{% static 'shop/icons/favicon-32.png' %}" alt="Butterfly Shop" class="w-full h-full object-cover">
+            </div>
             <div>
                 <div class="font-bold leading-tight">Butterfly Shop</div>
-                <div class="text-[11px] text-slate-300 uppercase tracking-widest">Manager</div>
+                <div class="text-[11px] text-indigo-100/80 uppercase tracking-widest">Manager</div>
             </div>
         </div>
         <form method="post" action="{% url 'accounts:logout' %}">
             {% csrf_token %}
-            <button type="submit" class="text-sm bg-slate-700 hover:bg-indigo-600 px-4 py-2 rounded-lg font-medium transition-colors">
+            <button type="submit" class="text-sm bg-white/15 hover:bg-white/25 text-white px-4 py-2 rounded-lg font-medium transition-colors">
                 Logout
             </button>
         </form>
