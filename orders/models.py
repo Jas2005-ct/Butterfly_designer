@@ -22,11 +22,20 @@ class OrderStage(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
 
 
-class ServiceType(models.TextChoices):
+class ItemType(models.TextChoices):
+    """What one line of an order is making - the ITEM cell's dropdown.
+
+    Replaces the order-level ServiceType: the garment is chosen per line
+    now, so one order can carry a blouse and a chudi without lying about
+    either. "other" is the escape hatch for work no name covers -
+    alterations, bridal, embroidery - and the line itself carries the
+    staff note saying what it actually is.
+    """
+
     BLOUSE = "blouse", "Blouse"
-    SAREE_ALTERATION = "saree_alteration", "Saree Alteration"
-    BRIDAL = "bridal", "Bridal"
-    OTHER = "other", "Other"
+    CHUDI = "chudi", "Chudi"
+    PATTU_PAVADAI = "pattu_pavadai", "Pattu pavadai"
+    OTHER = "other", "Other tailoring"
 
 
 class MaterialSource(models.TextChoices):
@@ -67,7 +76,6 @@ def generate_order_number():
 class Order(models.Model):
     order_number = models.CharField(max_length=20, unique=True, blank=True)
     customer = models.ForeignKey("customers.Customer", on_delete=models.PROTECT, related_name="orders")
-    service_type = models.CharField(max_length=20, choices=ServiceType.choices, default=ServiceType.OTHER)
     description = models.TextField(blank=True)
     # Nullable on purpose: the client's own words were "the mentioned amount
     # may varies", so a price is agreed as the job progresses and an order can
@@ -140,6 +148,27 @@ class Order(models.Model):
         if len(sources) == 1:
             return MaterialSource(sources.pop())
         return MaterialSource.MIXED
+
+    @property
+    def item_type_display(self):
+        """The garment type this order shows as its badge: the first line's.
+
+        "First" means lowest id - the line the shop added first - because
+        OrderItem has no position column, and reordering rows in the editor
+        does not change what was added first. Derived rather than stored so
+        that editing a line updates the board card, the lists and the
+        receipts in one move instead of leaving a stale copy behind.
+
+        Returns:
+            str. The display label ("Blouse", "Chudi", ...), or "" when the
+            order was never itemised - callers hide the badge then, because
+            there is no garment to name.
+        """
+        items = list(self.items.all())
+        if not items:
+            return ""
+        first = min(items, key=lambda item: item.pk)
+        return first.get_item_type_display()
 
     @property
     def total_quantity(self):
@@ -227,7 +256,20 @@ class OrderItem(models.Model):
     """
 
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
-    description = models.CharField(max_length=255)
+    # What this line is making, from the ITEM dropdown. The garment lives on
+    # the line rather than on the order (Order.service_type is gone): one
+    # order can mix a blouse with a chudi, and the board badge and the
+    # analytics mix both read this field's first line. The default only
+    # covers rows written by code that never chose - every form path posts
+    # an explicit value, blank included.
+    item_type = models.CharField(
+        max_length=20, choices=ItemType.choices, default=ItemType.BLOUSE
+    )
+    # The staff note. Worth typing only for "Other tailoring" - the form
+    # reveals the box then - which is why blank=True: a Blouse line is
+    # fully described by its type. Older free-text rows keep their words
+    # here, shown in brackets by OrderItem.label.
+    description = models.CharField(max_length=255, blank=True)
     quantity = models.PositiveIntegerField(default=1)
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     # Only SHOP and CUSTOMER: an item is never MIXED (see MaterialSource).
@@ -245,6 +287,25 @@ class OrderItem(models.Model):
 
     def __str__(self):
         return f"{self.quantity} x {self.description} ({self.price})"
+
+    @property
+    def label(self):
+        """What this line reads as wherever lines are listed.
+
+        The type first, because that is what the dropdown chose; the staff
+        note in brackets when there is one, because "Blouse with lining" is
+        what the shop actually needs to see. A note identical to the type
+        ("Blouse" in a Blouse row) is skipped rather than printed twice.
+
+        Returns:
+            str. Never empty: the type alone names the line even when no
+            note was written.
+        """
+        kind = self.get_item_type_display()
+        note = (self.description or "").strip()
+        if note and note != kind:
+            return f"{kind} ({note})"
+        return kind
 
     @property
     def line_total(self):
@@ -276,21 +337,23 @@ class OrderItem(models.Model):
         """Pieces of this line still to hand over.
 
         Returns:
-            int. Not clamped at zero: record_delivery() refuses the writes
-            that would make it negative, so a negative here would itself be
-            the signal that something bypassed the service layer.
+            int. Normally never negative: record_delivery() refuses the
+            writes that would make it negative. The one honest way to a
+            negative here is editing the ordered count after a full visit,
+            which cannot resurrect the hand-over (see FullDeliveryTests).
         """
         return self.quantity - self.delivered_quantity
 
 
 class Delivery(models.Model):
-    """One hand-over visit: some or all of the pieces, on a stated date.
+    """One hand-over visit: the whole of what remained, on a stated date.
 
-    Why a table instead of a counter on the order: the client's own example
-    was "if a customer given 10 blouse they delivery a 2 -> 4 -> 2 -> 2 in
-    differnet date" — four visits on four dates. A single counter would lose
-    when each batch went out, how many, and who handed it over, and could
-    never answer "what did she collect on the 14th?".
+    Why a table instead of a counter on the order: what went out, when, in
+    what mix of items, and who recorded it is the shop's memory of the
+    visit - a single counter could never answer "what did she collect on
+    the 14th?". Vintage partial visits (recorded before the rule changed)
+    still read from here unchanged; new visits are always full, and a
+    delivered order will normally carry exactly one row.
 
     `amount_collected` is reserved for money handed over at the counter
     during a visit. It is deliberately not on the record-delivery form yet:
