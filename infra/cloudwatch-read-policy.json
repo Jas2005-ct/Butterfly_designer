@@ -1,0 +1,43 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "MetricsRead",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListMetrics"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AppAlarmsRead",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:DescribeAlarmHistory"
+      ],
+      "Resource": "arn:aws:cloudwatch:ap-south-1:558948635923:alarm:*butterfly-designer*"
+    },
+    {
+      "Sid": "LogsInsightsRead",
+      "Effect": "Allow",
+      "Action": [
+        "logs:StartQuery",
+        "logs:GetLogGroupFields"
+      ],
+      "Resource": "arn:aws:logs:ap-south-1:558948635923:log-group:/aws/ecs/default/butterfly-designer*"
+    },
+    {
+      "Sid": "QueryResultsRead",
+      "Effect": "Allow",
+      "Action": [
+        "logs:StopQuery",
+        "logs:GetQueryResults",
+        "logs:DescribeQueries"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
