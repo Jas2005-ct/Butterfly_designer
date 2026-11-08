@@ -365,7 +365,7 @@ not a release decision.
 |---|---|---|---|
 | `gh` OAuth token | GitHub token | `repo`, `workflow`, `admin:public_key`, `gist`, `read:org` | `git push`, PRs, `gh` CLI |
 | AWS root (CLI default profile) | IAM user | full account | ⚠️ currently used for every deploy |
-| `butterfly-designer` | IAM user | inline `ecs-deploy` + inline `s3-butterfly-only` + managed `ButterflyConsoleRead`; console login | console access; **no access key yet** |
+| `butterfly-designer` | IAM user | inline `ecs-deploy` + inline `s3-butterfly-only` + managed `ButterflyConsoleRead` + managed `ButterflyCloudWatchRead`; console login | console access incl. CloudWatch; **no access key yet** |
 | `github-actions-deploy` | IAM role | inline `ecs-deploy` | CI → assumed via OIDC, no stored keys |
 | `ecsTaskExecutionRole` | IAM role | `AmazonECSTaskExecutionRolePolicy` | ECS pulling the image + writing logs |
 | `ecsInfrastructureRoleForExpressServices` | IAM role | `AmazonECSInfrastructureRoleforExpressGatewayServices` + inline `express-mode-extra` | Express Mode creating ALB / ACM / SG / autoscaling |
@@ -381,11 +381,20 @@ The policies are versioned in `infra/`:
 | `infra/ecs-deploy-policy.json` | `github-actions-deploy` role **and** the `butterfly-designer` user | ECR push + Express service API + `iam:PassRole` + logs |
 | `infra/express-mode-extra-policy.json` | `ecsInfrastructureRoleForExpressServices` role | the permissions the AWS-managed infrastructure policy does **not** grant |
 | `infra/console-read-policy.json` | `butterfly-designer` user, as the **managed** policy `ButterflyConsoleRead` | read-only ECS / logs / autoscaling / infrastructure calls, so the AWS console renders |
+| `infra/cloudwatch-read-policy.json` | `butterfly-designer` user, as the **managed** policy `ButterflyCloudWatchRead` | what log browsing does not cover: CloudWatch metrics, the service's three alarms (ARN-scoped to names containing `butterfly-designer`), and Logs Insights queries on the app log group |
 | `infra/ecr-lifecycle-policy.json` | the ECR repository | keep the 5 most recent tagged releases (rollback targets) and expire untagged images after 30 days |
 
 `console-read` is a **managed** policy rather than an inline one: its document
 is 2078 bytes and IAM caps inline user policies at 2048. Managed policies
 allow 6144.
+
+`cloudwatch-read` is its own managed policy instead of piggy-backing on
+`console-read` for two reasons: it is a distinct capability (viewing data
+versus browsing infrastructure), and its scope is deliberately tighter —
+alarm describes match only ARNs containing `butterfly-designer`, and
+Logs Insights queries only the app's log-group prefix. The metric reads stay
+`Resource: "*"` only because AWS does not support scoping `ListMetrics` /
+`GetMetricData` per metric.
 
 `infra/setup-aws-deploy-role.ps1` creates the whole set idempotently.
 

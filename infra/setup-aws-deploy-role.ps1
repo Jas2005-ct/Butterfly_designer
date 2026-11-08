@@ -9,7 +9,9 @@
          .github/workflows/,
       3. the ECR repository that holds the application image,
       4. the `butterfly-designer` IAM user, with the read-only `console-read`
-         policy (so the ECS/ECR consoles render) and the `ecs-deploy` policy
+         policy (so the ECS/ECR consoles render), the read-only
+         `cloudwatch-read` policy (metrics, the service's alarms, Logs
+         Insights) and the `ecs-deploy` policy
          (so the CLI can manage the service without using root).
 
     It does NOT create billable compute: no Express service, no ALB, no Fargate
@@ -152,6 +154,24 @@ if (aws iam list-user-policies --user-name $UserName 2>$null | Select-String -Qu
     aws iam delete-user-policy --user-name $UserName --policy-name console-read
     Write-Ok "removed the superseded inline 'console-read'"
 }
+
+# CloudWatch read: console-read already covers browsing the app's log streams,
+# but the CloudWatch metrics/alarms tabs and Logs Insights queries deny without
+# these. Alarm describes are ARN-scoped to names containing the service name, so
+# unrelated alarms stay invisible.
+Write-Step "Attaching cloudwatch-read to $UserName"
+$cloudWatchArn = "arn:aws:iam::${AccountId}:policy/ButterflyCloudWatchRead"
+$cloudWatchDoc = Get-Content (Join-Path $here 'cloudwatch-read-policy.json') -Raw
+$existing = aws iam get-policy --policy-arn $cloudWatchArn 2>$null
+if ($existing) {
+    aws iam create-policy-version --policy-arn $cloudWatchArn --policy-document $cloudWatchDoc --set-as-default | Out-Null
+    Write-Ok "managed policy 'ButterflyCloudWatchRead' updated (new default version)"
+} else {
+    aws iam create-policy --policy-name ButterflyCloudWatchRead --policy-document $cloudWatchDoc --description "Read-only CloudWatch for the butterfly-designer app: metrics, the service's alarms by name, and Logs Insights on its log group." | Out-Null
+    Write-Ok "managed policy 'ButterflyCloudWatchRead' created"
+}
+aws iam attach-user-policy --user-name $UserName --policy-arn $cloudWatchArn
+Write-Ok "attached to $UserName"
 
 Write-Step "Attaching ecs-deploy to $UserName"
 aws iam put-user-policy `
