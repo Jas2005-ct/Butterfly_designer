@@ -224,6 +224,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # django-tailwind: compiled CSS for the shop app (replaces the CDN).
 TAILWIND_APP_NAME = 'theme'
+# Only use the local Windows npm path when running on Windows
+if os.name == 'nt':
+    NPM_BIN_PATH = os.environ.get("NPM_BIN_PATH", r"C:\Program Files\nodejs\npm.cmd")
 
 # Shop manager
 LOGIN_URL = '/shop/login/'

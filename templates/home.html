@@ -25,12 +25,8 @@
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
 
     <!-- Favicon -->
-    {% if about and about.image %}
-    <link class="favicon-el" rel="icon" href="{{ about.image.url }}">
-    {% else %}
-    <link class="favicon-el" rel="icon"
-        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦋</text></svg>">
-    {% endif %}
+    <link rel="icon" href="{% static 'shop/icons/favicon-32.png' %}" type="image/png">
+    <link rel="apple-touch-icon" href="{% static 'shop/icons/apple-touch-icon-180.png' %}">
 </head>
 
 <body class="bg-[#FAF9F6] text-slate-900 overflow-x-hidden">
