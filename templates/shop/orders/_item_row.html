@@ -1,15 +1,31 @@
 {# One line of the item editor. `item` is an OrderItem, or None for a #}
 {# blank row - every field below falls back cleanly when it is None. #}
 {# #}
-{# The five names repeat on purpose: the view reads them back with #}
+{# The six names repeat on purpose: the view reads them back with #}
 {# getlist() and zips the rows together again. #}
 
 <tr class="item-row align-top">
     <td class="py-1 pr-4">
         <input type="hidden" name="item_id" value="{{ item.id|default:'' }}">
-        <input type="text" name="item_description" value="{{ item.description|default:'' }}"
-               placeholder="Blouse with lining"
-               class="w-full px-2 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+        {# The ITEM cell is a dropdown: what is being made is chosen, not #}
+        {# typed, so the board badge and analytics read one agreed #}
+        {# vocabulary. The blank first option keeps an untouched row #}
+        {# blank - without it every cloned row would silently be a Blouse. #}
+        <select name="item_type" data-item-type
+                class="w-full px-2 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none bg-white">
+            <option value="">Select type</option>
+            {% for value, label in item_type_choices %}
+            <option value="{{ value }}"{% if value == item.item_type|default:'' %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        {# The note is the old free-text ITEM box, worth showing only for #}
+        {# "Other tailoring" - the three named garments say it in the #}
+        {# dropdown. The hidden class, not removal, matters: a note typed #}
+        {# earlier keeps posting while invisible, so switching a row to #}
+        {# Blouse never silently deletes the words. #}
+        <input type="text" name="item_description" data-item-note value="{{ item.description|default:'' }}"
+               placeholder="e.g. Saree fall attach" {% if item.item_type|default:'' != 'other' %}hidden{% endif %}
+               class="mt-1 w-full px-2 py-2 rounded-lg border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
     </td>
     <td class="py-1 pr-4">
         <input type="text" name="item_quantity" inputmode="numeric" value="{{ item.quantity|default:1 }}"
@@ -31,8 +47,10 @@
         {# _item_rows.html keeps the ticks and the mirror consistent. #}
         {% with current=item.material_source|default:'shop' %}
         <input type="hidden" name="item_material" value="{{ current }}">
-        {# Chips sit on one row; flex-wrap is the escape hatch on narrow screens. #}
-        <div class="flex flex-wrap items-center gap-1" data-material-picker>
+        {# Chips hold one row, always: the short Shop/Customer labels are #}
+        {# the point - the full wording is what used to wrap them onto two #}
+        {# lines in the narrow side panel - so there is no flex-wrap here. #}
+        <div class="flex items-center gap-1" data-material-picker>
             {% for value, label in material_choices %}
             <label class="inline-flex items-center whitespace-nowrap rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs cursor-pointer select-none has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50 has-[:checked]:text-indigo-700">
                 <input type="radio" value="{{ value }}" data-material-radio class="sr-only"

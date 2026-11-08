@@ -46,7 +46,7 @@
             <div class="grid grid-cols-2 gap-3 text-sm">
                 <div>
                     <div class="text-slate-500 uppercase tracking-wider text-xs">Service</div>
-                    <div class="font-medium">{{ order.get_service_type_display }}</div>
+                    <div class="font-medium">{{ order.item_type_display|default:"—" }}</div>
                 </div>
                 <div>
                     <div class="text-slate-500 uppercase tracking-wider text-xs">Promised</div>
@@ -126,7 +126,7 @@
                     </div>
                     <div class="text-xs text-slate-600 mt-1">
                         {% for line in delivery.lines.all %}
-                        {{ line.quantity }}&times; {{ line.order_item.description }}{% if not forloop.last %}, {% endif %}
+                        {{ line.quantity }}&times; {{ line.order_item.label }}{% if not forloop.last %}, {% endif %}
                         {% endfor %}
                     </div>
                 </div>

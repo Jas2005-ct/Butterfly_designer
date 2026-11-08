@@ -16,13 +16,13 @@ definition. These helpers also pin down business meanings:
 from datetime import timedelta
 from decimal import Decimal
 
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from billing.models import Payment
 from customers.models import Customer
-from orders.models import Order, OrderStage, ServiceType
+from orders.models import ItemType, Order, OrderItem, OrderStage
 
 STUCK_AFTER_DAYS = 3
 
@@ -151,18 +151,29 @@ def orders_by_stage():
 
 
 def service_mix():
-    """Order counts + booked revenue per service type (non-cancelled)."""
+    """Order counts + booked revenue per garment type (non-cancelled).
+
+    Grouped by each order's FIRST line's type - the same line the board
+    badge shows (Order.item_type_display) - so the chart and the cards can
+    never disagree about what an order is. Orders that were never itemised
+    have no type to group by and land in their own bucket rather than
+    vanishing: their booked revenue is still booked revenue.
+    """
+    first_item_type = (
+        OrderItem.objects.filter(order=OuterRef("pk")).order_by("id").values("item_type")[:1]
+    )
     rows = (
         Order.objects.exclude(stage=OrderStage.CANCELLED)
-        .values("service_type")
+        .annotate(first_type=Subquery(first_item_type))
+        .values("first_type")
         .annotate(count=Count("id"), revenue=Coalesce(Sum("total"), Decimal("0")))
         .order_by("-revenue")
     )
-    labels = dict(ServiceType.choices)
+    labels = dict(ItemType.choices)
     return [
         {
-            "service": row["service_type"],
-            "label": labels.get(row["service_type"], row["service_type"]),
+            "type": row["first_type"],
+            "label": labels.get(row["first_type"]) or "Not itemised",
             "count": row["count"],
             "revenue": row["revenue"],
         }

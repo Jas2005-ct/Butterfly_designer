@@ -13,13 +13,13 @@ from customers.models import Customer, CustomerMeasurement
 from orders.models import (
     Delivery,
     DeliveryLine,
+    ItemType,
     MaterialSource,
     Order,
     OrderItem,
     OrderMeasurement,
     OrderStage,
     OrderStageHistory,
-    ServiceType,
     generate_order_number,
 )
 from orders.services import (
@@ -35,6 +35,10 @@ from orders.services import (
 # function out directly lets the tests exercise the real remap against the
 # real database - see StageRemapMigrationTests.
 fold_removed_stages = import_module("orders.migrations.0002_simplify_stages").fold_removed_stages
+# 0007 starts with a digit for the same reason; its mapping is the whole
+# contract of the column move, so it is imported rather than re-typed here
+# - see ItemTypeBackfillMigrationTests.
+item_type_backfill = import_module("orders.migrations.0007_item_type")
 
 
 class OrderModelTests(TestCase):
@@ -62,11 +66,25 @@ class OrderModelTests(TestCase):
     def test_defaults(self):
         order = Order.objects.create(customer=self.customer)
         self.assertEqual(order.stage, OrderStage.MEASUREMENT)
-        self.assertEqual(order.service_type, ServiceType.OTHER)
+        # No garment is claimed until a line says so: the badge is derived from
+        # the items now, and an unitemised order shows none.
+        self.assertEqual(order.item_type_display, "")
         # None, not 0: an unpriced order is "not agreed yet", which is a
         # different claim from "agreed to be free".
         self.assertIsNone(order.total)
         self.assertFalse(order.is_priced)
+
+    def test_item_type_display_reads_the_first_line(self):
+        """The badge names the line the shop added first, not the newest.
+
+        "First" means lowest id - OrderItem has no position column - and it
+        is derived from the lines so that editing one updates every list at
+        once rather than leaving a stale copy behind.
+        """
+        order = Order.objects.create(customer=self.customer)
+        OrderItem.objects.create(order=order, item_type=ItemType.PATTU_PAVADAI)
+        OrderItem.objects.create(order=order, item_type=ItemType.CHUDI)
+        self.assertEqual(order.item_type_display, "Pattu pavadai")
 
     def test_stage_history_str(self):
         order = Order.objects.create(customer=self.customer)
@@ -252,6 +270,37 @@ class StageRemapMigrationTests(TestCase):
         self.assertEqual(order.stage, OrderStage.STITCHING)
 
 
+class ItemTypeBackfillMigrationTests(TestCase):
+    """orders/0007_item_type - the column move the whole feature rests on.
+
+    The backfill itself cannot run here: it reads Order.service_type, which
+    the same migration drops, so this database no longer has the column.
+    What can be pinned is the mapping - the complete statement of what each
+    legacy value became - which is the entire content of the data move.
+    """
+
+    mapping = item_type_backfill.SERVICE_TO_ITEM_TYPE
+
+    def test_every_legacy_value_folds_into_the_new_vocabulary(self):
+        self.assertEqual(
+            self.mapping,
+            {
+                "blouse": "blouse",
+                "saree_alteration": "other",
+                "bridal": "other",
+                "other": "other",
+            },
+        )
+
+    def test_no_mapping_names_a_garment_that_does_not_exist(self):
+        """A typo'd target would be caught only at runtime, on a real
+        migration run - far away from any code review."""
+        self.assertTrue(set(self.mapping.values()) <= set(ItemType.values))
+        self.assertEqual(
+            item_type_backfill.UNKNOWN_SERVICE_TYPE, ItemType.OTHER.value
+        )
+
+
 class OrderViewsTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="mgr", password="secret123")
@@ -301,6 +350,26 @@ class OrderViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "hx-swap-oob")
 
+    def test_advancing_to_delivery_surfaces_the_settle_row(self):
+        """The common hand-over the client described: 5 blouse + 1 chudi go
+        out at once, so tapping Delivery answers in the same response with
+        the payments panel already showing what is still due."""
+        order = Order.objects.create(
+            customer=self.customer, stage=OrderStage.READY, total=Decimal("500")
+        )
+        response = self.client.post(
+            reverse("orders:advance_stage", args=[order.id]),
+            {"to_stage": OrderStage.DELIVERED},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="order-payments" hx-swap-oob="innerHTML"')
+        self.assertContains(
+            response, reverse("billing:order_settle_balance", args=[order.id])
+        )
+        order.refresh_from_db()
+        self.assertEqual(order.stage, OrderStage.DELIVERED)
+
     def test_board_active_tab_hides_delivered(self):
         delivered = Order.objects.create(customer=self.customer, stage=OrderStage.DELIVERED)
         response = self.client.get(reverse("orders:board"))
@@ -319,6 +388,39 @@ class OrderViewsTests(TestCase):
         self.assertContains(response, "Print receipt")
         self.assertContains(response, "order-receipt")
         self.assertContains(response, "Balance due")
+
+    def _board_card_html(self, html, order):
+        """The linked half of one order card, where the garment badge lives.
+
+        The card opens with an anchor that ends at the badge, so splitting on
+        the card id and the first closing tag isolates exactly what staff see
+        - an assertContains over the whole board would pass for the wrong
+        order's sake.
+        """
+        return html.split(f'id="order-card-{order.id}"', 1)[1].split("</a>", 1)[0]
+
+    def test_board_badge_shows_the_first_lines_garment(self):
+        """One order can mix garments; the card names the one the shop put
+        first, which is the same line the analytics chart groups by."""
+        order = Order.objects.create(customer=self.customer)
+        OrderItem.objects.create(order=order, item_type=ItemType.CHUDI)
+        OrderItem.objects.create(order=order, item_type=ItemType.BLOUSE)
+        card = self._board_card_html(
+            self.client.get(reverse("orders:board")).content.decode(), order
+        )
+        self.assertIn("Chudi", card)
+        self.assertNotIn("Blouse", card)
+
+    def test_board_hides_the_badge_for_an_unitemised_order(self):
+        """No lines, no garment to claim: the pill disappears rather than
+        naming a guess, and the date keeps its place on the right."""
+        order = Order.objects.create(
+            customer=self.customer, promised_date=timezone.now().date()
+        )
+        card = self._board_card_html(
+            self.client.get(reverse("orders:board")).content.decode(), order
+        )
+        self.assertNotIn("bg-indigo-50 text-indigo-700", card)
 
     def test_board_overdue_badge(self):
         yesterday = timezone.now().date() - timedelta(days=1)
@@ -509,7 +611,6 @@ class BoardVolumeTests(TestCase):
                 "customer": "",
                 "customer_name": "New Customer",
                 "customer_phone": "9999999999",
-                "service_type": "blouse",
                 "total": "500.00",
                 "description": "Test order",
             },
@@ -527,7 +628,6 @@ class BoardVolumeTests(TestCase):
             reverse("orders:create"),
             {
                 "customer": str(self.customer.id),
-                "service_type": "bridal",
                 "total": "5000.00",
             },
         )
@@ -553,7 +653,6 @@ class BoardVolumeTests(TestCase):
             reverse("orders:create"),
             {
                 "customer": str(self.customer.id),
-                "service_type": "blouse",
                 "total": "not-a-number",
             },
         )
@@ -755,8 +854,8 @@ class MeasurementSnapshotTests(TestCase):
 class OrderItemTests(TestCase):
     """The line-item editor: what goes in, what comes out, and the flag it drives.
 
-    Rows reach the view as four repeated field names plus a row id, so the
-    payloads below use lists - one entry per row, in order.
+    Rows reach the view as six repeated field names, so the payloads below
+    use lists - one entry per row, in order.
     """
 
     def setUp(self):
@@ -778,6 +877,7 @@ class OrderItemTests(TestCase):
             "customer": str(self.customer.id),
             "total": "1000",
             "item_id": [""],
+            "item_type": ["blouse"],
             "item_description": ["Blouse with lining"],
             "item_quantity": ["2"],
             "item_price": ["500"],
@@ -800,6 +900,7 @@ class OrderItemTests(TestCase):
         """The editor ships with empty rows; they must never become items."""
         self.post_items(
             item_id=["", ""],
+            item_type=["blouse", ""],
             item_description=["Blouse with lining", "   "],
             item_quantity=["2", "3"],
             item_price=["500", "100"],
@@ -839,6 +940,7 @@ class OrderItemTests(TestCase):
         """zip() would truncate and quietly save a plausible-looking subset."""
         self.post_items(
             item_id=["", ""],
+            item_type=["blouse", "other"],
             item_description=["Blouse", "Saree"],
             item_quantity=["2"],  # one short of the other lists
             item_price=["500", "200"],
@@ -849,6 +951,7 @@ class OrderItemTests(TestCase):
     def test_multiple_rows_keep_their_order(self):
         self.post_items(
             item_id=["", ""],
+            item_type=["blouse", "other"],
             item_description=["Blouse", "Saree alteration"],
             item_quantity=["2", "1"],
             item_price=["500", "200"],
@@ -859,6 +962,79 @@ class OrderItemTests(TestCase):
             list(order.items.values_list("description", flat=True)),
             ["Blouse", "Saree alteration"],
         )
+        # The garment rides along in its own column: one named line and one
+        # Other-tailoring note, exactly as they were posted.
+        self.assertEqual(
+            list(order.items.values_list("item_type", flat=True)),
+            ["blouse", "other"],
+        )
+
+    def test_a_row_saves_the_garment_it_was_given(self):
+        """The dropdown's value is the line's own type - never inferred from
+        the note, which is what used to make every order read as a Blouse."""
+        self.post_items(item_type=["chudi"])
+        item = Order.objects.get(customer=self.customer).items.get()
+        self.assertEqual(item.item_type, ItemType.CHUDI)
+
+    def test_a_new_line_defaults_to_blouse(self):
+        """The column default is only for code that never chose; every form
+        path posts an explicit value, blank included."""
+        order = Order.objects.create(customer=self.customer)
+        item = OrderItem.objects.create(order=order, description="Blouse")
+        self.assertEqual(item.item_type, ItemType.BLOUSE)
+
+    def test_a_row_with_a_type_and_no_note_is_kept(self):
+        """Two chudis with nothing else to say is a complete line: the note
+        is optional for the three named garments, exactly as blank=True
+        records."""
+        self.post_items(item_description=[""], item_type=["chudi"])
+        item = Order.objects.get(customer=self.customer).items.get()
+        self.assertEqual(item.item_type, ItemType.CHUDI)
+        self.assertEqual(item.description, "")
+
+    def test_a_note_without_a_garment_type_is_refused(self):
+        """Prose is not a garment. Guessing one would put the wrong badge on
+        the board, so the row is named and sent back for a choice."""
+        response = self.post_items(
+            item_type=[""], item_description=["Saree fall attach"]
+        )
+        self.assertContains(response, "choose what is being made", status_code=400)
+        self.assertFalse(Order.objects.exists())
+
+    def test_an_unknown_garment_type_is_refused(self):
+        """Only the four named garments exist; anything else is a typo the
+        server must not quietly store."""
+        response = self.post_items(item_type=["lehenga"])
+        self.assertContains(response, "unknown garment type", status_code=400)
+        self.assertFalse(Order.objects.exists())
+
+    def test_six_lists_that_do_not_line_up_are_refused(self):
+        """zip() still truncates to the shortest list, and there is now a
+        sixth to get wrong - so an uneven payload is refused wholesale."""
+        response = self.post_items(item_type=[])
+        self.assertContains(response, "came back incomplete", status_code=400)
+        self.assertFalse(Order.objects.exists())
+
+    def test_label_names_the_garment_then_the_note(self):
+        """Every place lines are listed reads this one string, so its shape
+        is a contract: type first, note in brackets - and a note that only
+        repeats the type is not printed twice."""
+        order = Order.objects.create(customer=self.customer)
+        plain = OrderItem.objects.create(
+            order=order, item_type=ItemType.BLOUSE, description="", quantity=1
+        )
+        noted = OrderItem.objects.create(
+            order=order,
+            item_type=ItemType.OTHER,
+            description="Saree fall attach",
+            quantity=1,
+        )
+        repeated = OrderItem.objects.create(
+            order=order, item_type=ItemType.BLOUSE, description="Blouse", quantity=1
+        )
+        self.assertEqual(plain.label, "Blouse")
+        self.assertEqual(noted.label, "Other tailoring (Saree fall attach)")
+        self.assertEqual(repeated.label, "Blouse")
 
     def test_line_total_is_quantity_times_unit_price(self):
         """`price` is per unit, not the line total - this pins that reading."""
@@ -911,6 +1087,7 @@ class OrderItemTests(TestCase):
         self.post_items(
             order=order,
             item_id=[str(item.id)],
+            item_type=["blouse"],
             item_description=["Blouse with lining"],
             item_quantity=["3"],
             item_price=["400"],
@@ -930,6 +1107,7 @@ class OrderItemTests(TestCase):
         self.post_items(
             order=order,
             item_id=[str(keep.id)],
+            item_type=["blouse"],
             item_description=["Blouse"],
             item_quantity=["1"],
             item_price=[""],
@@ -947,6 +1125,7 @@ class OrderItemTests(TestCase):
         self.post_items(
             order=mine,
             item_id=[str(foreign.id)],
+            item_type=["blouse"],
             item_description=["Hijacked"],
             item_quantity=["1"],
             item_price=["10"],
@@ -991,10 +1170,12 @@ class OrderItemTests(TestCase):
         order = Order.objects.create(customer=self.customer)
         OrderItem.objects.create(order=order, description="Blouse", quantity=2)
         response = self.client.get(reverse("orders:edit", args=[order.id]))
-        # The value attribute, not the bare word: the blank row's placeholder
-        # says "Blouse with lining", so the word alone proves nothing.
+        # The value attribute, not the bare word: the dropdown offers "Blouse"
+        # as an option on every row, so the word alone proves nothing.
         self.assertContains(response, 'value="Blouse"')
         self.assertContains(response, 'value="2"')
+        # The garment the line already carries is the one pre-selected.
+        self.assertContains(response, '<option value="blouse" selected>Blouse</option>')
 
 
 class OptionalTotalTests(TestCase):
@@ -1014,7 +1195,7 @@ class OptionalTotalTests(TestCase):
     def test_create_with_a_blank_total_leaves_it_unset(self):
         self.client.post(
             reverse("orders:create"),
-            {"customer": str(self.customer.id), "service_type": "blouse", "total": ""},
+            {"customer": str(self.customer.id), "total": ""},
         )
         order = Order.objects.get(customer=self.customer)
         self.assertIsNone(order.total)
@@ -1137,13 +1318,14 @@ class OptionalTotalTests(TestCase):
         self.assertContains(response, "Amount TBD")
 
 
-class PartialDeliveryTests(TestCase):
-    """Handing work over in batches: the client's own "2 -> 4 -> 2 -> 2".
+class FullDeliveryTests(TestCase):
+    """One hand-over visit takes everything; partial visits are gone.
 
-    Full text: "if a cusotmer given 10 blouse they delivery a 2 -> 4 -> 2 -> 2
-    in differnet date". Everything below is about the count staying honest,
-    the stage moving only when the lifecycle allows it, and no path letting
-    the shop record more pieces than it actually handed over.
+    The counted form let a visit record "2 of the 10 blouses" - the old
+    "2 -> 4 -> 2 -> 2" - and each of those records left pieces out with the
+    customer while describing only part of the hand-over. A visit now takes
+    everything still outstanding, from a Ready order only, and closes the
+    order by itself.
     """
 
     def setUp(self):
@@ -1157,66 +1339,109 @@ class PartialDeliveryTests(TestCase):
             order=self.order, description="Blouse", quantity=10, price=Decimal("50")
         )
 
-    def deliver(self, quantity, **kwargs):
-        """Record `quantity` of the fixture item and return the Delivery."""
-        return record_delivery(self.order, [(self.item, quantity)], **kwargs)
+    def hand_over(self, **kwargs):
+        """Record the full visit: every item still owed, all of it."""
+        lines = [
+            (item, item.remaining_quantity)
+            for item in self.order.items.all()
+            if item.remaining_quantity > 0
+        ]
+        return record_delivery(self.order, lines, **kwargs)
 
     # ------------------------------------------------------------------ maths
 
-    def test_the_client_example_two_four_two_two(self):
-        for index, quantity in enumerate([2, 4, 2, 2], start=1):
-            self.deliver(quantity, delivered_on=date(2026, 10, index))
+    def test_the_client_case_is_now_one_visit(self):
+        """What used to arrive as 2 -> 4 -> 2 -> 2 is one recorded visit of
+        all ten pieces - and it is the only way to hand over."""
+        self.hand_over(delivered_on=date(2026, 10, 1))
 
         self.assertEqual(self.order.delivered_quantity, 10)
         self.assertEqual(self.order.remaining_quantity, 0)
         self.assertTrue(self.order.is_fully_delivered)
         self.assertEqual(self.order.delivery_percent, 100)
 
-        # Four separate visits on four separate dates, not one counter.
         deliveries = list(self.order.deliveries.all())
-        self.assertEqual(len(deliveries), 4)
-        self.assertEqual([d.total_quantity for d in deliveries], [2, 4, 2, 2])
-        self.assertEqual(
-            [d.delivered_on for d in deliveries],
-            [date(2026, 10, 1), date(2026, 10, 2), date(2026, 10, 3), date(2026, 10, 4)],
-        )
+        self.assertEqual(len(deliveries), 1)
+        self.assertEqual(deliveries[0].total_quantity, 10)
+        self.assertEqual(deliveries[0].delivered_on, date(2026, 10, 1))
 
-    def test_progress_is_derived_not_stored(self):
-        self.deliver(2)
-        self.assertEqual(self.order.total_quantity, 10)
-        self.assertEqual(self.order.delivered_quantity, 2)
-        self.assertEqual(self.order.remaining_quantity, 8)
-        self.assertEqual(self.order.delivery_percent, 20)
-        self.assertFalse(self.order.is_fully_delivered)
-
-        # Derivation means it follows an edit to the ordered quantity.
-        self.item.quantity = 8
-        self.item.save(update_fields=["quantity"])
-        self.assertEqual(self.order.remaining_quantity, 6)
-        self.assertEqual(self.order.delivery_percent, 25)
-
-    def test_partials_are_summed_across_items(self):
+    def test_every_item_goes_out_together(self):
         second = OrderItem.objects.create(
             order=self.order, description="Saree blouse", quantity=5, price=Decimal("80")
         )
-        self.deliver(3)
-        record_delivery(self.order, [(second, 5)])
-        self.assertEqual(self.order.delivered_quantity, 8)
-        self.assertEqual(self.order.total_quantity, 15)
+        self.hand_over()
+        self.assertEqual(self.order.delivered_quantity, 15)
+        self.assertEqual(self.order.deliveries.count(), 1)
+        self.assertEqual(self.order.deliveries.get().total_quantity, 15)
+
+    def test_a_later_quantity_edit_keeps_the_order_delivered(self):
+        """Quantities stay derived: after the hand-over, lowering the ordered
+        count cannot put work back on the outstanding list."""
+        self.hand_over()
+        self.item.quantity = 8
+        self.item.save(update_fields=["quantity"])
+        self.assertTrue(self.order.is_fully_delivered)
+        self.assertEqual(self.order.delivery_percent, 100)
 
     # ------------------------------------------------------------ validation
 
-    def test_over_delivery_is_refused(self):
-        self.deliver(6)
-        with self.assertRaises(ValueError):
-            self.deliver(5)
+    def test_a_partial_visit_is_refused(self):
+        """For a one-item order, "partial" is under-filling the line: the
+        refund of the rule names exactly what a correct visit takes."""
+        with self.assertRaisesMessage(
+            ValueError, '"Blouse" goes out complete - hand over all 10 of it.'
+        ):
+            record_delivery(self.order, [(self.item, 4)])
         # Nothing was written on the rejected attempt.
-        self.assertEqual(self.order.delivered_quantity, 6)
+        self.assertEqual(self.order.delivered_quantity, 0)
+        self.assertEqual(self.order.stage, OrderStage.READY)
+        self.assertEqual(Delivery.objects.count(), 0)
 
-    def test_over_delivery_names_what_is_short(self):
-        self.deliver(8)
-        with self.assertRaisesRegex(ValueError, r'Only 2 of "Blouse" remain undelivered'):
-            self.deliver(3)
+    def test_leaving_one_item_out_is_refused(self):
+        second = OrderItem.objects.create(
+            order=self.order, description="Saree blouse", quantity=5, price=Decimal("80")
+        )
+        with self.assertRaisesMessage(ValueError, "all 15 outstanding pieces"):
+            record_delivery(self.order, [(self.item, 10)])
+        self.assertEqual(DeliveryLine.objects.count(), 0)
+
+    def test_under_filling_an_item_is_refused(self):
+        """5 of 10 blouses is a partial visit even with every line present."""
+        second = OrderItem.objects.create(
+            order=self.order, description="Saree blouse", quantity=5, price=Decimal("80")
+        )
+        with self.assertRaisesMessage(ValueError, "goes out complete"):
+            record_delivery(self.order, [(self.item, 5), (second, 5)])
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_over_delivery_is_refused(self):
+        with self.assertRaisesMessage(ValueError, "goes out complete"):
+            record_delivery(self.order, [(self.item, 15)])
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_an_item_listed_twice_is_refused(self):
+        with self.assertRaisesMessage(ValueError, "is listed twice in this visit"):
+            record_delivery(self.order, [(self.item, 5), (self.item, 5)])
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_the_visit_only_comes_from_ready(self):
+        """Work still being stitched cannot be handed over - and a refused
+        attempt leaves the stage exactly where it was."""
+        self.order.stage = OrderStage.STITCHING
+        self.order.save(update_fields=["stage"])
+        with self.assertRaisesMessage(ValueError, "only once the order is Ready"):
+            self.hand_over()
+        self.assertEqual(self.order.stage, OrderStage.STITCHING)
+        self.assertEqual(Delivery.objects.count(), 0)
+
+    def test_a_revisit_after_the_handover_is_refused(self):
+        """Everything went out in the first visit; a second one would take
+        pieces that no longer exist. The rare alteration return closes via
+        the stage button instead."""
+        self.hand_over()
+        with self.assertRaisesMessage(ValueError, "only once the order is Ready"):
+            self.hand_over()
+        self.assertEqual(self.order.deliveries.count(), 1)
 
     def test_a_line_from_another_order_cannot_be_delivered(self):
         other = Order.objects.create(customer=self.customer)
@@ -1232,13 +1457,13 @@ class PartialDeliveryTests(TestCase):
     def test_zero_and_negative_counts_are_refused(self):
         for bad in (0, -1):
             with self.assertRaises(ValueError):
-                self.deliver(bad)
-        self.assertEqual(self.order.delivered_quantity, 0)
+                record_delivery(self.order, [(self.item, bad)])
+        self.assertEqual(Delivery.objects.count(), 0)
 
     # --------------------------------------------------------------- staging
 
-    def test_the_last_delivery_advances_the_stage(self):
-        self.deliver(10)
+    def test_the_visit_closes_the_order(self):
+        self.hand_over()
         self.order.refresh_from_db()
         self.assertEqual(self.order.stage, OrderStage.DELIVERED)
         # Recorded in the audit trail rather than silently reassigned.
@@ -1246,18 +1471,55 @@ class PartialDeliveryTests(TestCase):
             self.order.stage_history.filter(to_stage=OrderStage.DELIVERED).exists()
         )
 
-    def test_a_partial_delivery_leaves_the_stage_alone(self):
-        self.deliver(4)
+    def test_advancing_to_delivered_records_the_visit(self):
+        """The bare Advance button is the other door into Delivered: walking
+        through it with pieces outstanding must record the same full visit
+        the hand-over button does - or the card reads "0 of 10 delivered"
+        for an order the customer has already taken home."""
+        advance_stage(self.order, OrderStage.DELIVERED, self.user)
         self.order.refresh_from_db()
-        self.assertEqual(self.order.stage, OrderStage.READY)
+        self.assertEqual(self.order.stage, OrderStage.DELIVERED)
+        delivery = self.order.deliveries.get()
+        self.assertEqual(delivery.total_quantity, 10)
+        self.assertEqual(delivery.recorded_by, self.user)
+        self.assertEqual(self.order.delivered_quantity, 10)
+        # The close itself is the only history entry - the visit wrote it.
+        self.assertEqual(
+            self.order.stage_history.filter(to_stage=OrderStage.DELIVERED).count(), 1
+        )
 
-    def test_delivery_cannot_skip_the_stage_machine(self):
-        """Legal to record, but not to jump measurement -> delivered."""
-        self.order.stage = OrderStage.STITCHING
-        self.order.save(update_fields=["stage"])
-        self.deliver(10)
-        self.order.refresh_from_db()
-        self.assertEqual(self.order.stage, OrderStage.STITCHING)
+    def test_the_advance_record_survives_a_prefetched_instance(self):
+        """The board prefetches deliveries; an advance started from an
+        instance carrying a stale "nothing delivered" cache must record
+        exactly ONE visit, not re-trigger against the just-written rows."""
+        prefetched = (
+            Order.objects.prefetch_related("deliveries__lines").get(id=self.order.id)
+        )
+        advance_stage(prefetched, OrderStage.DELIVERED, self.user)
+        prefetched.refresh_from_db()
+        self.assertEqual(prefetched.stage, OrderStage.DELIVERED)
+        self.assertEqual(self.order.deliveries.count(), 1)
+        self.assertEqual(self.order.delivered_quantity, 10)
+
+    def test_an_advance_without_outstanding_pieces_records_nothing(self):
+        """A bare order closes with the ordinary button and no empty visit
+        row; a vintage order whose pieces were recorded earlier is not
+        double-recorded on the way back from an alteration."""
+        bare = Order.objects.create(customer=self.customer, stage=OrderStage.READY)
+        advance_stage(bare, OrderStage.DELIVERED, self.user)
+        bare.refresh_from_db()
+        self.assertEqual(bare.stage, OrderStage.DELIVERED)
+        self.assertEqual(bare.deliveries.count(), 0)
+
+    def test_the_auto_advancing_page_announces_the_settle_row(self):
+        """The same hand-over as "5 blouse + 1 chudi at one time": recording
+        the visit advances the stage itself, so the page it returns to must
+        already show the one-tap settle row - the staff member never asked
+        for a stage change, and the money question arrives anyway."""
+        self.hand_over()
+        response = self.client.get(reverse("orders:detail", args=[self.order.id]))
+        self.assertContains(response, "receive it now, all at once")
+        self.assertContains(response, "Balance due ₹1000.00")
 
     def test_an_order_without_items_is_never_fully_delivered(self):
         """0 ordered and 0 delivered must not read as "everything handed
@@ -1270,11 +1532,7 @@ class PartialDeliveryTests(TestCase):
     # ----------------------------------------------------------------- views
 
     def post_delivery(self, **overrides):
-        payload = {
-            "item_id": [str(self.item.id)],
-            "quantity": ["3"],
-            "delivered_on": "2026-10-01",
-        }
+        payload = {"delivered_on": "2026-10-01"}
         payload.update(overrides)
         return self.client.post(
             reverse("orders:delivery_add", args=[self.order.id]), payload, follow=True
@@ -1283,124 +1541,77 @@ class PartialDeliveryTests(TestCase):
     def assertDeliveryRejected(self, response, text):
         """The 400-and-keep-your-input contract for the delivery form.
 
-        Why a helper: five error paths answer 400 with the page re-rendered,
+        Why a helper: every error path answers 400 with the page re-rendered,
         and assertContains defaults to expecting 200 - the first forgotten
         status_code would silently regenerate the redirect bug this class
         exists to prevent.
         """
         self.assertContains(response, text, status_code=400)
 
-    def test_posting_a_delivery_records_it(self):
+    def test_posting_the_hand_over_records_everything(self):
         response = self.post_delivery()
         self.assertContains(response, "Delivery recorded.")
         delivery = self.order.deliveries.get()
-        self.assertEqual(delivery.total_quantity, 3)
+        self.assertEqual(delivery.total_quantity, 10)
         self.assertEqual(delivery.delivered_on, date(2026, 10, 1))
         self.assertEqual(delivery.recorded_by, self.user)
-        self.assertEqual(self.order.delivered_quantity, 3)
+        self.assertEqual(self.order.delivered_quantity, 10)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.stage, OrderStage.DELIVERED)
 
-    def test_over_delivery_from_the_form_is_refused_and_reported(self):
-        self.deliver(8)
-        response = self.post_delivery(quantity=["5"])
-        self.assertDeliveryRejected(response, "remain undelivered")
-        self.assertEqual(self.order.delivered_quantity, 8)
-
-    def test_boxes_left_blank_are_skipped_not_rejected(self):
-        """Filling in one line out of three is the normal case."""
+    def test_the_form_hands_over_every_item_it_lists(self):
         second = OrderItem.objects.create(
             order=self.order, description="Saree blouse", quantity=5, price=Decimal("80")
         )
-        response = self.post_delivery(
-            item_id=[str(self.item.id), str(second.id)],
-            quantity=["", "4"],
-        )
+        response = self.post_delivery()
         self.assertContains(response, "Delivery recorded.")
-        self.assertEqual(self.order.delivered_quantity, 4)
+        self.assertEqual(self.order.deliveries.get().total_quantity, 15)
 
-    def test_all_boxes_blank_is_refused(self):
-        response = self.post_delivery(quantity=[""])
-        self.assertDeliveryRejected(response, "Enter how many")
-        self.assertEqual(Delivery.objects.count(), 0)
-
-    def test_a_non_numeric_count_is_refused(self):
-        response = self.post_delivery(quantity=["two"])
-        self.assertDeliveryRejected(response, "not a whole number")
-        self.assertEqual(Delivery.objects.count(), 0)
-
-    def test_another_orders_line_cannot_be_posted(self):
-        other = Order.objects.create(customer=self.customer)
-        other_item = OrderItem.objects.create(order=other, description="Saree", quantity=1)
-        response = self.post_delivery(item_id=[str(other_item.id)], quantity=["1"])
-        self.assertDeliveryRejected(response, "does not belong to this order")
-        self.assertEqual(Delivery.objects.count(), 0)
+    def test_smuggled_counts_in_the_post_are_ignored(self):
+        """The form no longer carries count boxes; a hand-crafted POST that
+        still smuggles them cannot shave the visit down to a partial."""
+        response = self.post_delivery(quantity=["3"], item_id=[str(self.item.id)])
+        self.assertContains(response, "Delivery recorded.")
+        self.assertEqual(self.order.deliveries.get().total_quantity, 10)
 
     def test_an_invalid_date_is_refused(self):
         response = self.post_delivery(delivered_on="not-a-date")
         self.assertDeliveryRejected(response, "not a real date")
         self.assertEqual(Delivery.objects.count(), 0)
 
-    def test_a_refused_delivery_keeps_the_typed_counts(self):
+    def test_a_refused_delivery_keeps_the_date_and_the_note(self):
         """A rejected delivery used to redirect to a fresh page and drop the
-        counts, the date and the note - the three things its form exists for."""
-        response = self.post_delivery(
-            quantity=["two"], delivered_on="2026-10-01", note="rest on Thursday"
-        )
-        self.assertDeliveryRejected(response, "not a whole number")
-        self.assertDeliveryRejected(response, 'value="two"')
-        self.assertDeliveryRejected(response, 'value="2026-10-01"')
-        self.assertDeliveryRejected(response, 'value="rest on Thursday"')
-        self.assertEqual(Delivery.objects.count(), 0)
-
-    def test_a_bad_count_keeps_the_other_rows_typed(self):
-        """Only the row that needs fixing should go blank of nothing - the
-        valid row next to it must still show what staff typed."""
-        second = OrderItem.objects.create(
-            order=self.order, description="Saree blouse", quantity=5, price=Decimal("80")
-        )
-        response = self.post_delivery(
-            item_id=[str(self.item.id), str(second.id)],
-            quantity=["3", "two"],
-        )
-        self.assertDeliveryRejected(response, "not a whole number")
-        self.assertDeliveryRejected(response, 'value="3"')
-        self.assertEqual(Delivery.objects.count(), 0)
-
-    def test_a_bad_date_keeps_the_counts_and_the_note(self):
-        """The date names its own field, and the counts + note survive."""
-        response = self.post_delivery(
-            quantity=["3"],
-            delivered_on="32-13-2026",
-            note="rest on Thursday",
-        )
+        two things its form asks for."""
+        response = self.post_delivery(delivered_on="not-a-date", note="sent via courier")
         self.assertDeliveryRejected(response, "not a real date")
-        self.assertDeliveryRejected(response, 'value="3"')
-        self.assertDeliveryRejected(response, 'value="rest on Thursday"')
+        self.assertDeliveryRejected(response, 'value="not-a-date"')
+        self.assertDeliveryRejected(response, 'value="sent via courier"')
         self.assertEqual(Delivery.objects.count(), 0)
 
     def test_the_refused_page_keeps_every_panel(self):
         """Trading one data loss for two smaller ones: the refused re-render
         must not blank the payments panel or the delivery card it sits in."""
-        response = self.post_delivery(quantity=[""])
-        self.assertDeliveryRejected(response, "Enter how many")
-        self.assertDeliveryRejected(response, "Record a delivery")
+        response = self.post_delivery(delivered_on="not-a-date")
+        self.assertDeliveryRejected(response, "not a real date")
+        self.assertDeliveryRejected(response, "Record the hand-over")
         self.assertDeliveryRejected(response, 'id="order-payments"')
 
-    def test_a_refused_delivery_keeps_the_note(self):
-        response = self.post_delivery(quantity=[""], note="rest on Thursday")
-        self.assertDeliveryRejected(response, 'value="rest on Thursday"')
-
-    def test_the_typed_echo_survives_the_browser(self):
-        """The refused count must be visible, not merely present in the HTML.
-
-        A number widget sanitizes a non-numeric value into an empty box at
-        render time: the page could carry "two" and still show an empty box
-        where it was typed. Text + inputmode keeps the numeric keyboard on
-        tablets, shows exactly what was typed, and leaves validation with
-        the server, which is the only validator that ever really ran.
-        """
-        response = self.post_delivery(quantity=["two"])
-        self.assertDeliveryRejected(response, 'type="text" name="quantity"')
-        self.assertDeliveryRejected(response, 'value="two"')
+    def test_the_advance_refresher_swaps_the_deliveries_card(self):
+        """The detail page's advance answer carries the deliveries card
+        out-of-band too: the visit it just recorded changes exactly that
+        card, and a stale "Record the hand-over" button underneath a
+        Delivered order is the same bug this release is closing."""
+        response = self.client.post(
+            reverse("orders:advance_stage", args=[self.order.id]),
+            {"to_stage": OrderStage.DELIVERED},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="order-deliveries" hx-swap-oob="true"')
+        # The recorded visit is visible in the swapped card...
+        self.assertContains(response, "10&times; Blouse")
+        # ...and the button for another visit is not.
+        self.assertNotContains(response, "Record the hand-over")
 
     def test_a_blank_date_defaults_to_today(self):
         response = self.post_delivery(delivered_on="")
@@ -1410,32 +1621,40 @@ class PartialDeliveryTests(TestCase):
     # ----------------------------------------------------------------- pages
 
     def test_order_page_shows_the_card_and_progress_bar(self):
-        self.deliver(5)
         response = self.client.get(reverse("orders:detail", args=[self.order.id]))
         self.assertContains(response, "Deliveries")
-        self.assertContains(response, "Record a delivery")
-        self.assertContains(response, "5/10 delivered")
+        self.assertContains(response, "Record the hand-over")
+        self.assertContains(response, "0/10 delivered")
         self.assertContains(response, "Delivery progress")
-        self.assertContains(response, "width: 50%")
-        self.assertContains(response, "5 of 10 still to hand over")
+        self.assertContains(response, "width: 0%")
+        self.assertContains(response, "10 of 10 still to hand over")
+
+        # After the visit: the history stays, the button goes.
+        self.hand_over()
+        after = self.client.get(reverse("orders:detail", args=[self.order.id]))
+        self.assertContains(after, "Deliveries")
+        self.assertNotContains(after, "Record the hand-over")
+        self.assertContains(after, "10/10 delivered")
 
     def test_order_page_lists_each_hand_over(self):
-        self.deliver(2, delivered_on=date(2026, 10, 1), note="first two")
+        self.hand_over(delivered_on=date(2026, 10, 1), note="sent via courier")
         response = self.client.get(reverse("orders:detail", args=[self.order.id]))
         self.assertContains(response, "01 Oct 2026")
-        self.assertContains(response, "2&times; Blouse")
-        self.assertContains(response, "first two")
+        self.assertContains(response, "10&times; Blouse")
+        self.assertContains(response, "sent via courier")
 
     def test_an_order_without_items_gets_no_delivery_card(self):
         bare = Order.objects.create(customer=self.customer)
         response = self.client.get(reverse("orders:detail", args=[bare.id]))
-        self.assertNotContains(response, "Record a delivery")
+        self.assertNotContains(response, "Record the hand-over")
         self.assertNotContains(response, "Delivery progress")
 
     def test_board_card_shows_delivery_progress(self):
-        self.deliver(2)
-        response = self.client.get(reverse("orders:board"))
-        self.assertContains(response, "2/10 delivered")
+        self.hand_over()
+        # The full visit closed the order, so the card now lives on the
+        # Delivered tab - progress is drawn on every card, there and here.
+        response = self.client.get(reverse("orders:board"), {"tab": "delivered"})
+        self.assertContains(response, "10/10 delivered")
 
     def test_board_card_hides_progress_when_nothing_is_itemised(self):
         Order.objects.create(customer=self.customer, stage=OrderStage.READY)
@@ -1443,12 +1662,14 @@ class PartialDeliveryTests(TestCase):
         self.assertNotContains(response, "0/0 delivered")
 
     def test_tracking_page_shows_what_was_handed_over(self):
-        self.deliver(2, delivered_on=date(2026, 10, 1))
+        self.hand_over(delivered_on=date(2026, 10, 1))
         response = self.client.get(reverse("orders:track", args=[self.order.track_token]))
         self.assertContains(response, "Handed over so far")
-        self.assertContains(response, "2&times; Blouse")
-        self.assertContains(response, "8 pieces still to come")
-        self.assertContains(response, "width: 20%")
+        self.assertContains(response, "10&times; Blouse")
+        self.assertContains(response, "10/10")
+        self.assertContains(response, "width: 100%")
+        # The whole order went out in one visit; nothing is still to come.
+        self.assertNotContains(response, "still to come")
 
     def test_tracking_page_hides_the_panel_when_nothing_is_itemised(self):
         bare = Order.objects.create(customer=self.customer)
@@ -1488,12 +1709,12 @@ class OrderFormKeepsTypedValuesTests(TestCase):
         """A complete, valid create-POST that tests can break one field at a time."""
         payload = {
             "customer": str(self.customer.id),
-            "service_type": "blouse",
             "description": "Princess cut with lining",
             "total": "1500",
             "promised_date": "2026-11-01",
             "notes": "customer wants narrow sleeves",
             "item_id": ["", ""],
+            "item_type": ["blouse", "other"],
             "item_description": ["Blouse with lining", "Saree border"],
             "item_quantity": ["1", "2"],
             "item_price": ["700", "100"],
@@ -1640,6 +1861,68 @@ class OrderFormConversationOrderTests(TestCase):
         visible = html.split('<tbody id="item-rows">', 1)[1].split("</tbody>", 1)[0]
         self.assertEqual(visible.count('class="item-row'), 1)
 
+    def test_the_service_type_cards_are_gone(self):
+        """An order no longer declares one garment for every line, so the
+        card grid - and the field name behind it - must be gone from both
+        forms, not merely hidden."""
+        create = self.client.get(reverse("orders:create")).content.decode()
+        self.assertNotIn('name="service_type"', create)
+        self.assertNotIn("Service Type", create)
+        order = Order.objects.create(customer=self.customer)
+        edit = self.client.get(reverse("orders:edit", args=[order.id])).content.decode()
+        self.assertNotIn('name="service_type"', edit)
+        self.assertNotIn("Service Type", edit)
+
+    def test_every_item_row_offers_the_four_garments(self):
+        """The ITEM cell is a dropdown with one agreed vocabulary: four named
+        garments plus a blank option, so an untouched row stays blank instead
+        of silently becoming a Blouse."""
+        html = self.client.get(reverse("orders:create")).content.decode()
+        visible = html.split('<tbody id="item-rows">', 1)[1].split("</tbody>", 1)[0]
+        self.assertEqual(visible.count('name="item_type"'), 1)
+        for option in (
+            '<option value="">Select type</option>',
+            '<option value="blouse">Blouse</option>',
+            '<option value="chudi">Chudi</option>',
+            '<option value="pattu_pavadai">Pattu pavadai</option>',
+            '<option value="other">Other tailoring</option>',
+        ):
+            self.assertIn(option, visible)
+
+    def test_the_note_box_only_shows_for_other_tailoring(self):
+        """The three named garments say it in the dropdown; the free-text box
+        is for work no name covers. The hidden ones keep posting, so switching
+        a row's type never silently deletes a typed note."""
+        order = Order.objects.create(customer=self.customer)
+        for item_type, note in (
+            (ItemType.BLOUSE, "with lining"),
+            (ItemType.CHUDI, "green"),
+            (ItemType.PATTU_PAVADAI, "silver border"),
+            (ItemType.OTHER, "Saree fall attach"),
+        ):
+            OrderItem.objects.create(
+                order=order, item_type=item_type, description=note
+            )
+        html = self.client.get(reverse("orders:edit", args=[order.id])).content.decode()
+        visible = html.split('<tbody id="item-rows">', 1)[1].split("</tbody>", 1)[0]
+        # Four typed rows plus the trailing blank the editor always ships.
+        notes = re.findall(r'<input type="text" name="item_description"[^>]*>', visible)
+        self.assertEqual(len(notes), 5)
+        shown = [tag for tag in notes if not re.search(r"\bhidden\b", tag)]
+        self.assertEqual(len(shown), 1)
+        self.assertIn("Saree fall attach", shown[0])
+
+    def test_the_cloth_chips_carry_short_labels_on_one_row(self):
+        """'Shop supplies'/'Customer supplies' wrapped onto a second line in
+        the narrow side panel; the short labels and no flex-wrap keep the
+        picker on one."""
+        html = self.client.get(reverse("orders:create")).content.decode()
+        visible = html.split('<tbody id="item-rows">', 1)[1].split("</tbody>", 1)[0]
+        self.assertIn(">Shop</span>", visible)
+        self.assertIn(">Customer</span>", visible)
+        self.assertNotIn("flex flex-wrap items-center gap-1", visible)
+        self.assertNotIn("Shop supplies", visible)
+
     def test_the_job_details_sit_behind_more(self):
         """Description, the shop's own material spend and notes are details of
         the job rather than decisions being taken at the counter, so they must
@@ -1658,7 +1941,7 @@ class OrderFormConversationOrderTests(TestCase):
         when do you need it, how much. Not the order the columns happen to
         sit in on the model."""
         html = self.client.get(reverse("orders:create")).content.decode()
-        work = html.index("Service Type")
+        work = html.index(">Items</label>")
         how_many = html.index('id="item-rows"')
         when = html.index('id="promised_date"')
         how_much = html.index('id="total"')

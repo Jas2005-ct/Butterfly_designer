@@ -1,8 +1,13 @@
 {% comment %}
 HTMX stage-advance response: the buttons swap inline into #stage-buttons,
-while the stepper and timeline refresh via out-of-band swaps so the whole
-detail page stays consistent without a reload.
+while the stepper, timeline, payments panel and deliveries card refresh via
+out-of-band swaps so the whole detail page stays consistent without a
+reload. The payments panel rides along because stepping INTO Delivery is the
+hand-over moment the panel's one-tap settle row waits for; the deliveries
+card because the advance itself records the visit it displays.
 {% endcomment %}
 {% include "shop/orders/_stage_buttons.html" %}
 <div id="order-stepper" hx-swap-oob="true">{% include "shop/orders/_order_stepper.html" %}</div>
 <div id="stage-timeline" hx-swap-oob="true">{% include "shop/orders/_stage_timeline.html" %}</div>
+<div id="order-payments" hx-swap-oob="innerHTML">{% include "shop/billing/_payments.html" %}</div>
+<div id="order-deliveries" hx-swap-oob="true">{% include "shop/orders/_deliveries.html" %}</div>
